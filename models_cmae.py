@@ -43,6 +43,7 @@ class MaskedAutoencoderViT(nn.Module):
         self.w_batchwise_loss = w_batchwise_loss
         self.w_patchwise_loss = w_patchwise_loss
         self.w_batchwise_cls_loss = w_batchwise_cls_loss
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
 
         # MAE encoder specifics
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
@@ -211,7 +212,7 @@ class MaskedAutoencoderViT(nn.Module):
             # create sort of masked cls tokens for predicting other clss, when using this option
             if self.cls_predict_loss and not self.debug_mode:
                 # the masked clss are a function of the mask
-                cls_tokens = self.cls_predict_tokens_mlp(mask.half()).float().unsqueeze(1)  # [B, 1, G, E]
+                cls_tokens = self.cls_predict_tokens_mlp(mask * 1.).unsqueeze(1).float()  # [B, 1, G, E]
             else:
                 # this is for debugging
                 cls_tokens = torch.randint(10, (B, 1, G, E), device=orig_cls_token.device)
@@ -289,7 +290,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         # normalize before dot prod. equivalent to cosine-sim
         pred = F.normalize(pred, dim=-1)
-        rep = F.normalize(rep, dim=-1)  # .detach()
+        rep = F.normalize(rep, dim=-1) # .detach()
 
         # separate the cls tokens (cls will be empty if not using because C==0)
         pred_cls, pred = pred[:, :, :C, :], pred[:, :, C:, :]
@@ -318,11 +319,11 @@ class MaskedAutoencoderViT(nn.Module):
             batchwise_cls_labels = torch.arange(B, dtype=torch.long, device=pred.device).repeat(G*C)
 
         # apply CE loss. we don't reduce so we can mask out self-predictions and weight cls
-        batchwise_loss = F.cross_entropy(batchwise_logits, batchwise_labels, reduction='none').view(G, P, B)
+        batchwise_loss = self.criterion(batchwise_logits, batchwise_labels).view(G, P, B)
         if self.w_patchwise_loss:
-            patchwise_loss = F.cross_entropy(patchwise_logits, patchwise_labels, reduction='none').view(B, G, P)
+            patchwise_loss = self.criterion(patchwise_logits, patchwise_labels).view(B, G, P)
         if self.cls_predict_loss:
-            batchwise_cls_loss = F.cross_entropy(batchwise_cls_logits, batchwise_cls_labels, reduction='none').view(G, C, B)
+            batchwise_cls_loss = self.criterion(batchwise_cls_logits, batchwise_cls_labels).view(G, C, B)
 
         # reshape losses to natural shapes
         batchwise_loss = rearrange(batchwise_loss, 'G P B -> B G P')

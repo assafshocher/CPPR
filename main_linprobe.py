@@ -203,7 +203,11 @@ def main(args):
                 del checkpoint_model[k]
 
         # interpolate position embedding
-        interpolate_pos_embed(model, checkpoint_model)
+        # interpolate_pos_embed(model, checkpoint_model)
+        pos_embed = checkpoint_model['pos_embed'] 
+        zero = torch.zeros(1, 1, pos_embed.shape[-1], device=pos_embed.device)
+        checkpoint_model['pos_embed'] = torch.cat([zero, pos_embed], 1)
+        
 
         # load pre-trained model
         msg = model.load_state_dict(checkpoint_model, strict=False)
