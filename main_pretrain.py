@@ -22,7 +22,7 @@ from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from data_transforms import TwoCropsTransform
-
+from util.misc import  accuracy, AverageMeter
 import timm
 
 # assert timm.__version__ == "0.3.2"  # version check
@@ -138,6 +138,26 @@ def main(args):
     dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), 
                                          transform=TwoCropsTransform(args.input_size, args.num_groups))
     print(dataset_train)
+    val_dataset = datasets.ImageFolder(os.path.join(args.data_path, "val"),
+                                       transforms.Compose(
+                                           [
+                                               transforms.Resize(256),
+                                               transforms.CenterCrop(224),
+                                               transforms.ToTensor(),
+                                               transforms.Normalize(
+                                                   mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                                               ),
+                                           ]
+                                       ),
+                                       )
+
+    kwargs = dict(
+        batch_size=args.batch_size // args.world_size,
+        num_workers=args.num_workers,
+        pin_memory=True,
+    )
+
+    val_loader = torch.utils.data.DataLoader(val_dataset, **kwargs)
 
     if True:  # args.distributed:
         num_tasks = misc.get_world_size()
@@ -228,8 +248,32 @@ def main(args):
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
+
+            top1 = AverageMeter("Acc@1")
+            top5 = AverageMeter("Acc@5")
+
+            with torch.no_grad():
+                for images, target in val_loader:
+                    output = model(images.cuda(device, non_blocking=True), None, None, mode='eval')
+                    acc1, acc5 = accuracy(
+                        output, target.cuda(device, non_blocking=True), topk=(1, 5)
+                    )
+                    top1.update(acc1[0].item(), images.size(0))
+                    top5.update(acc5[0].item(), images.size(0))
+
+            stats = dict(
+                epoch=epoch,
+                acc1_h=top1.avg,
+                acc5_h=top5.avg,
+                acc1_z=top1.avg,
+                acc5_z=top5.avg,
+            )
+            print(stats)
+            log_stats.update(stats)
             if args.use_wandb:
                 wandb.log(log_stats)
+
+            model.train()
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
