@@ -38,13 +38,14 @@ def train_one_epoch(model: torch.nn.Module,
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
-    for data_iter_step, (samples, _) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    for data_iter_step, (samples, y) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
         samples = samples.to(device, non_blocking=True).view(-1, 3, args.input_size, args.input_size)
+        y = y.to(device, non_blocking=True).unsqueeze(-1).repeat(1, args.num_groups).flatten()
         with torch.cuda.amp.autocast():
-            loss, _, _, loss_batchwise, loss_patchwise, loss_cls = model(samples, num_groups=args.num_groups, group_sz=args.group_sz)
+            loss, _, _, loss_batchwise, loss_patchwise, loss_cls = model(samples, num_groups=args.num_groups, group_sz=args.group_sz, y=y)
         loss_value = loss.item()
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
