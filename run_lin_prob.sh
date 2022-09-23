@@ -43,7 +43,7 @@ python -m torch.distributed.launch --nproc_per_node=8 main_linprobe.py \
         --model vit_base_patch16\
         --finetune ${PRETRAIN_CHKPT} \
         --epochs 90 \
-        --blr 0.1 \
+        --blr 0.25 \
         --weight_decay 0.0 \
         --dist_eval --data_path ${DATA_PATH} --output_dir ${OUTPUT_DIR} \
         --cls_token \
