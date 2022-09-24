@@ -58,11 +58,11 @@ class MaskedAutoencoderViT(nn.Module):
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * in_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
+        self.norm_pix_loss = norm_pix_loss
+
         self.fc_projector = torch.nn.Linear(embed_dim, 1000)
         self.fc_projector = torch.nn.Sequential(self.fc_projector, torch.nn.BatchNorm1d(1000, affine=False))
         self.cross_entropy = torch.nn.CrossEntropyLoss()
-
-        self.norm_pix_loss = norm_pix_loss
 
         self.initialize_weights()
 
@@ -173,6 +173,12 @@ class MaskedAutoencoderViT(nn.Module):
 
         return x, mask, ids_restore
 
+    def forward_eval_loss(self, h, y):
+        h = h.detach()
+        y_h_pred = self.fc_projector(h)
+        loss_y_h = self.cross_entropy(y_h_pred, y)
+        return loss_y_h
+
     def forward_decoder(self, x, ids_restore):
         # embed tokens
         x = self.decoder_embed(x)
@@ -217,16 +223,14 @@ class MaskedAutoencoderViT(nn.Module):
         loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
         return loss
 
-    def forward_eval_loss(self, h, y):
-        h = h.detach()
-        y_h_pred = self.fc_projector(h)
-        loss_y_h = self.cross_entropy(y_h_pred, y)
-        return loss_y_h
-
-    def forward(self, imgs, mask_ratio=0.75):
+    def forward(self, imgs, mask_ratio=0.75, y=None):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
         pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
         loss = self.forward_loss(imgs, pred, mask)
+
+        if y is not None:
+            loss += self.forward_eval_loss(latent[:, 0], y)
+
         return loss, pred, mask
 
 
