@@ -43,6 +43,10 @@ def get_args_parser():
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
 
+    parser.add_argument('--no_wandb', action='store_false', dest='use_wandb')
+    parser.set_defaults(use_wandb=True)
+    parser.add_argument('--save_ckpt_freq', default=10, type=int)
+
     # Model parameters
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
@@ -161,6 +165,15 @@ def main(args):
 
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
+        if args.use_wandb:
+            try:
+                import wandb
+                wandb.init(
+                    project=args.project_name, entity="cppr", config=vars(args))
+                wandb.run.name = os.path.split(args.output_dir)[-1]
+                wandb.run.save()
+            except Exception as e:
+                print(f"Unable to setup wandb: {e}")
         log_writer = SummaryWriter(log_dir=args.log_dir)
     else:
         log_writer = None
@@ -246,6 +259,8 @@ def main(args):
             )
             print(stats)
             log_stats.update(stats)
+            if args.use_wandb:
+                wandb.log(log_stats)
 
             if log_writer is not None:
                 log_writer.flush()
