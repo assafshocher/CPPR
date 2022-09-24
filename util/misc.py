@@ -255,7 +255,7 @@ class NativeScalerWithGradNormCount:
         self._scaler = torch.cuda.amp.GradScaler()
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
-        print("loss:", loss.item(), "  .     sclaed:", self._scaler.scale(loss).item())
+        # print("loss:", loss.item(), "  .     sclaed:", self._scaler.scale(loss).item())
         # print("start backward [[[[[[[[[[[[[[")
         self._scaler.scale(loss).backward(create_graph=create_graph)
         # print("]]]]]]]]]]]]]  end backward ")

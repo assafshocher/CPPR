@@ -361,7 +361,6 @@ class MaskedAutoencoderViT(nn.Module):
 
         return loss, batchwise_loss, patchwise_loss, batchwise_cls_loss, None
 
-    @torch.no_grad()
     def forward_eval_loss(self, h, y):
         h = h.detach()
         y_h_pred = self.fc_projector(h)

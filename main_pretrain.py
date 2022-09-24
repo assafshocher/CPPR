@@ -175,7 +175,7 @@ def main(args):
             try:
                 import wandb
                 wandb.init(
-                    project=args.project_name, entity="assafshocher", config=vars(args))
+                    project=args.project_name, entity="cppr", config=vars(args))
                 wandb.run.name = os.path.split(args.output_dir)[-1]
                 wandb.run.save()
             except Exception as e:

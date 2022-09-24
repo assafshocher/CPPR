@@ -58,6 +58,10 @@ class MaskedAutoencoderViT(nn.Module):
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * in_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
+        self.fc_projector = torch.nn.Linear(embed_dim, 1000)
+        self.fc_projector = torch.nn.Sequential(self.fc_projector, torch.nn.BatchNorm1d(1000, affine=False))
+        self.cross_entropy = torch.nn.CrossEntropyLoss()
+
         self.norm_pix_loss = norm_pix_loss
 
         self.initialize_weights()
@@ -212,6 +216,12 @@ class MaskedAutoencoderViT(nn.Module):
 
         loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
         return loss
+
+    def forward_eval_loss(self, h, y):
+        h = h.detach()
+        y_h_pred = self.fc_projector(h)
+        loss_y_h = self.cross_entropy(y_h_pred, y)
+        return loss_y_h
 
     def forward(self, imgs, mask_ratio=0.75):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
