@@ -61,7 +61,7 @@ class MaskedAutoencoderViT(nn.Module):
         self.norm_pix_loss = norm_pix_loss
 
         self.fc_projector = torch.nn.Linear(embed_dim, 1000)
-        self.fc_projector = torch.nn.Sequential(self.fc_projector, torch.nn.BatchNorm1d(1000, affine=False))
+        self.fc_projector = torch.nn.Sequential(torch.nn.BatchNorm1d(1000, affine=False), self.fc_projector)
         self.cross_entropy = torch.nn.CrossEntropyLoss()
 
         self.initialize_weights()
