@@ -45,6 +45,8 @@ def get_args_parser():
 
     parser.add_argument('--no_wandb', action='store_false', dest='use_wandb')
     parser.set_defaults(use_wandb=True)
+    parser.add_argument('--project_name', default='mae_baseline',
+                        help='path where to tensorboard log')  
     parser.add_argument('--save_ckpt_freq', default=10, type=int)
 
     # Model parameters
@@ -242,8 +244,9 @@ def main(args):
             top5 = AverageMeter("Acc@5")
 
             with torch.no_grad():
+                model.eval()
                 for images, target in val_loader:
-                    output = model(images.cuda(device, non_blocking=True), None, None, mode='eval')
+                    output = model(images.cuda(device, non_blocking=True), mode='eval')
                     acc1, acc5 = accuracy(
                         output, target.cuda(device, non_blocking=True), topk=(1, 5)
                     )

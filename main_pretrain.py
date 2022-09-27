@@ -253,6 +253,7 @@ def main(args):
             top5 = AverageMeter("Acc@5")
 
             with torch.no_grad():
+                model.eval()
                 for images, target in val_loader:
                     output = model(images.cuda(device, non_blocking=True), None, None, mode='eval')
                     acc1, acc5 = accuracy(
