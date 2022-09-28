@@ -33,26 +33,25 @@ nvidia-smi
 # script you'll only get updated every several lines printed.
 export PYTHONUNBUFFERED=1
 
-OUTPUT_DIR='/home/assafsho/CPPR/temperature_05_no_cls_pred'
+OUTPUT_DIR='/home/assafsho/CPPR/baseline_mae'
 mkdir ${OUTPUT_DIR}
 # DATA_PATH='/shared/group/ilsvrc'
 DATA_PATH='/home/assafsho/data/ILSVRC2012'
 TIME=$(date +%s%3N)
 # Do all the research.
 # python main_pretrain.py \
-python -m torch.distributed.launch --nproc_per_node=8 main_pretrain.py \
+python -m torch.distributed.launch --nproc_per_node=8 main_pretrain_mae_baseline.py \
         --data_path ${DATA_PATH} \
         --model mae_vit_base_patch16 \
-        --save_ckpt_freq 5 \
         --input_size 224 \
-        --batch_size 256 \
+        --batch_size 512 \
         --warmup_epochs 40 \
         --epochs 800 \
-        --blr 1e-3 \
-        --temperature 0.5 \
+        --blr 1.5e-4 --weight_decay 0.05 \
         --output_dir ${OUTPUT_DIR}  \
         --project_name "linear_prob_comparison" \
         --dist_url "file://$OUTPUT_DIR/$TIME" \
+        --norm_pix_loss \
         # --resume "/home/assafsho/mae/large/checkpoint-165.pth"  \
         
 

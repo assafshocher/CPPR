@@ -43,6 +43,7 @@ def get_args_parser():
     parser.add_argument('--epochs', default=400, type=int)
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
+    parser.add_argument('--kill_after', default=1000, type=int)
 
     # Model parameters
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
@@ -56,6 +57,9 @@ def get_args_parser():
 
     parser.add_argument('--group_sz', default=49, type=int,
                     help='number of patches in each group.')
+
+    parser.add_argument('--temperature', default=0.1, type=float,
+                    help='temperature for softmax in InfoNCE.')
 
 
     parser.add_argument('--no_wandb', action='store_false', dest='use_wandb')
@@ -194,7 +198,7 @@ def main(args):
     )
     
     # define the model
-    model = models_cmae.__dict__[args.model]()
+    model = models_cmae.__dict__[args.model](temperature=args.temperature)
 
     model.to(device)
 
@@ -275,6 +279,9 @@ def main(args):
                 wandb.log(log_stats)
 
             model.train()
+
+        if epoch > args.kill_after:
+            break
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

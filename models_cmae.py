@@ -28,13 +28,13 @@ class MaskedAutoencoderViT(nn.Module):
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=1024, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, 
-                 use_cls_token=True, slim_predictor=True, cls_predict_loss=True,
+                 use_cls_token=True, slim_predictor=True, cls_predict_loss=False,
                  debug_mode=False,  num_groups=2, temperature=0.1,
-                 w_batchwise_loss=0.98, w_patchwise_loss=0., w_batchwise_cls_loss=0.02):
+                 w_batchwise_loss=1., w_patchwise_loss=0., w_batchwise_cls_loss=0.):
         super().__init__()
 
         # --------------------------------------------------------------------------
-
+        print('temperature', temperature)
         self.use_cls_token = use_cls_token
         self.slim_predictor = slim_predictor
         self.cls_predict_loss = cls_predict_loss
@@ -82,7 +82,7 @@ class MaskedAutoencoderViT(nn.Module):
         # --------------------------------------------------------------------------
 
         self.fc_projector = torch.nn.Linear(embed_dim, 1000)
-        self.fc_projector = torch.nn.Sequential(torch.nn.BatchNorm1d(1000, affine=False), self.fc_projector)
+        self.fc_projector = torch.nn.Sequential(torch.nn.BatchNorm1d(embed_dim, affine=False), self.fc_projector)
         self.cross_entropy = torch.nn.CrossEntropyLoss()
 
         if not self.debug_mode:
@@ -426,9 +426,6 @@ class MaskedAutoencoderViT(nn.Module):
                     loss_patchwise, loss_cls, *other_stats)
             
         return loss, pred, mask, loss_batchwise, loss_patchwise, loss_cls
-
-
-
 
 
 
