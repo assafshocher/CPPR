@@ -4,7 +4,7 @@ source ~/.bashrc
 
 JOB_DIR=
 DATA_PATH=
-KILL_AFTER=100
+KILL_AFTER=30
 
 for BLR in 1.5e-4 1e-5 1e-4 1e-3
 do
@@ -16,7 +16,7 @@ do
                 --output_dir ${OUTPUT_DIR}  \
                 --data_path ${DATA_PATH} \
                 --temperature temperature \
-                --nodes 1 \
+                --nodes 2 \
                 --use_volta32 \
                 --batch_size 256 \
                 --model mae_vit_base_patch16 \
