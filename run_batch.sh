@@ -8,7 +8,7 @@ KILL_AFTER=30
 
 for BLR in 1.5e-4 1e-5 1e-4 1e-3
 do
-    for TEMPERATURE in 0.05 0.01 0.005 1.0
+    for TEMPERATURE in 0.05 0.1 0.5 1.0
     do
         OUTPUT_DIR="cmae_temp_${TEMPERATURE}_blr_${BLR}"
         python submitit_pretrain.py \
@@ -16,7 +16,7 @@ do
                 --output_dir ${OUTPUT_DIR}  \
                 --data_path ${DATA_PATH} \
                 --temperature temperature \
-                --nodes 2 \
+                --nodes 1 \
                 --use_volta32 \
                 --batch_size 256 \
                 --model mae_vit_base_patch16 \
