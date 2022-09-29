@@ -43,7 +43,6 @@ def train_one_epoch(model: torch.nn.Module,
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
         samples = samples.to(device, non_blocking=True).view(-1, 3, args.input_size, args.input_size)
-        y = y.to(device, non_blocking=True).unsqueeze(-1).repeat(1, args.num_groups).flatten()
         with torch.cuda.amp.autocast():
             loss, _, _, loss_batchwise, loss_patchwise, loss_cls = model(samples, num_groups=args.num_groups, group_sz=args.group_sz, y=y)
         loss_value = loss.item()

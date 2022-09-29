@@ -24,12 +24,11 @@ class TwoCropsTransform:
         self.input_size = input_size
 
     def __call__(self, x):
-        sz = self.input_size
         x = self.united_transform(x)
         groups = []
         for _ in range(self.num_groups):
             groups.append(self.separate_transform(x))
-        groups = torch.cat(groups, 1)
+        groups = torch.cat(groups, 0)
         return groups
 
 

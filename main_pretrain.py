@@ -259,7 +259,7 @@ def main(args):
             with torch.no_grad():
                 model.eval()
                 for images, target in val_loader:
-                    output = model(images.cuda(device, non_blocking=True), None, None, mode='eval')
+                    output = model(images.cuda(device, non_blocking=True), 1, 196, mode='eval')
                     acc1, acc5 = accuracy(
                         output, target.cuda(device, non_blocking=True), topk=(1, 5)
                     )
