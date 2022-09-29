@@ -24,9 +24,9 @@ do
                 --input_size 224 \
                 --warmup_epochs 40 \
                 --epochs 800 \
-                --blr blr \
+                --blr BLR \
                 --weight_decay 0.05 \
-                --temperature 0.5 \
+                --temperature TEMPERATURE \
                 --output_dir ${OUTPUT_DIR}  \
                 --project_name "linear_prob_comparison" \
                 --dist_url "file://$OUTPUT_DIR/$TIME" \

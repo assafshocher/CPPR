@@ -46,10 +46,10 @@ python -m torch.distributed.launch --nproc_per_node=8 main_pretrain.py \
         --save_ckpt_freq 5 \
         --input_size 224 \
         --batch_size 256 \
-        --warmup_epochs 10 \
+        --warmup_epochs 40 \
         --epochs 800 \
         --blr 1.5e-4 \
-        --temperature 0.5 \
+        --temperature 0.1 \
         --output_dir ${OUTPUT_DIR}  \
         --project_name "linear_prob_comparison" \
         --dist_url "file://$OUTPUT_DIR/$TIME" \
