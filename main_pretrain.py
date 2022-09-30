@@ -18,7 +18,6 @@ from pathlib import Path
 
 import torch
 import torch.backends.cudnn as cudnn
-from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from data_transforms import TwoCropsTransform
@@ -173,6 +172,7 @@ def main(args):
     else:
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
 
+    log_writer = None
     if global_rank == 0 and args.log_dir is not None:
         os.makedirs(args.log_dir, exist_ok=True)
         if args.use_wandb:
@@ -184,10 +184,8 @@ def main(args):
                 wandb.run.save()
             except Exception as e:
                 print(f"Unable to setup wandb: {e}")
-        log_writer = SummaryWriter(log_dir=args.log_dir)
         print(args)
-    else:
-        log_writer = None
+
 
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
