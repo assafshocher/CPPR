@@ -50,14 +50,13 @@ class MaskedAutoencoderViT(nn.Module):
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim), requires_grad=False)  # fixed sin-cos embedding
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + use_cls_token, embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         if not debug_mode:
             self.blocks = nn.ModuleList([
                 Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
                 for i in range(depth)])
             self.norm = norm_layer(embed_dim)
-            # self.batch_norm = nn.SyncBatchNorm(embed_dim, affine=False)
         # --------------------------------------------------------------------------
         if cls_predict_loss:
             self.cls_predict_tokens_mlp = nn.Sequential(nn.Linear(num_patches, embed_dim, bias=True),
@@ -69,7 +68,7 @@ class MaskedAutoencoderViT(nn.Module):
         self.decoder_embed = nn.Linear(embed_dim, decoder_embed_dim, bias=True)
 
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.decoder_pos_embed = nn.Parameter(torch.zeros(1, num_patches, decoder_embed_dim), requires_grad=False)  # fixed sin-cos embedding
+        self.decoder_pos_embed = nn.Parameter(torch.zeros(1, num_patches + use_cls_token, decoder_embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         if not debug_mode:
             self.decoder_blocks = nn.ModuleList([
@@ -142,6 +141,11 @@ class MaskedAutoencoderViT(nn.Module):
         # embed patches
         x = self.patch_embed(imgs)
 
+        # append cls token
+        if self.use_cls_token:
+            cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
+            x = torch.cat((cls_tokens, x), dim=1)  # x: [B*G, 1+S, E]
+
         # add pos embed w/o cls token
         x = x + self.pos_embed
 
@@ -178,11 +182,6 @@ class MaskedAutoencoderViT(nn.Module):
         """
         patches_embeddings_divided: [B*G, S, E]
         """
-
-        # append cls token
-        if self.use_cls_token:
-            cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
-            x = torch.cat((cls_tokens, x), dim=1)  # x: [B*G, 1+S, E]
 
         # apply Transformer blocks
         if not self.debug_mode:
@@ -265,8 +264,9 @@ class MaskedAutoencoderViT(nn.Module):
             # add pos embed (need to slim it)
             L = self.decoder_pos_embed.shape[1]
             indices = mask.sum(1, keepdim=True).expand(B, G, L).reshape(B*G, L)
+            indices = torch.cat([torch.ones(B*G, 1, device=indices.device), indices], 1)  # pos embed for cls token
             pos_embed = self.decoder_pos_embed.expand(B*G, -1, -1)
-            x[:, C:, :] = x[:, C:, :] + pos_embed[indices.bool()].view(B*G, P, -1)  # note E is encoder embed sz so we used -1 here.
+            x = x + pos_embed[indices.bool()].view(B*G, 1+P, -1)  # note E is encoder embed sz so we used -1 here.
 
             # apply Transformer blocks
             for blk in self.decoder_blocks:
@@ -309,8 +309,12 @@ class MaskedAutoencoderViT(nn.Module):
         
         if self.w_patchwise_loss:
             patchwise_similarity_matrix = torch.einsum('bgpe,bqe->bgpq', pred, rep)
+        else: 
+            patchwise_similarity_matrix = None
         if self.cls_predict_loss:  # C==G
             batchwise_cls_similarity_matrix = torch.einsum('bgce,dce->gcbd', pred_cls, rep_cls)
+        else:
+            batchwise_cls_similarity_matrix = None
 
         # for CE we create logits, s.t. the number of classes is the number of exapmples we contrast with
         batchwise_logits = batchwise_similarity_matrix.reshape(G*P*B, B)  / self.temperature
@@ -363,9 +367,9 @@ class MaskedAutoencoderViT(nn.Module):
 
         if self.debug_mode:
             return (loss, batchwise_loss, patchwise_loss, batchwise_cls_loss,
-                    (batchwise_similarity_matrix, patchwise_similarity_matrix, batchwise_cls_similarity_matrix,
-                    batchwise_logits, patchwise_logits, batchwise_cls_logits, 
-                    batchwise_labels, patchwise_labels, batchwise_cls_labels))
+                    (batchwise_similarity_matrix,
+                    batchwise_logits, 
+                    batchwise_labels))
 
         return loss, batchwise_loss, patchwise_loss, batchwise_cls_loss, None
 
