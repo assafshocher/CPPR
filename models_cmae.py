@@ -89,10 +89,10 @@ class MaskedAutoencoderViT(nn.Module):
     def initialize_weights(self):
         # initialization
         # initialize (and freeze) pos_embed by sin-cos embedding
-        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=False)
+        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
-        decoder_pos_embed = get_2d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=False)
+        decoder_pos_embed = get_2d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
         self.decoder_pos_embed.data.copy_(torch.from_numpy(decoder_pos_embed).float().unsqueeze(0))
 
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
@@ -141,13 +141,8 @@ class MaskedAutoencoderViT(nn.Module):
         # embed patches
         x = self.patch_embed(imgs)
 
-        # append cls token
-        if self.use_cls_token:
-            cls_tokens = self.cls_token.expand(x.shape[0], -1, -1)
-            x = torch.cat((cls_tokens, x), dim=1)  # x: [B*G, 1+S, E]
-
         # add pos embed w/o cls token
-        x = x + self.pos_embed
+        x = x + self.pos_embed[:, 1:, :]
 
         return x
 
@@ -182,6 +177,12 @@ class MaskedAutoencoderViT(nn.Module):
         """
         patches_embeddings_divided: [B*G, S, E]
         """
+
+        # append cls token
+        if self.use_cls_token:
+            cls_token = self.cls_token + self.pos_embed[:, :1, :]
+            cls_tokens = cls_token.expand(x.shape[0], -1, -1)
+            x = torch.cat((cls_tokens, x), dim=1)  # x: [B*G, 1+S, E]
 
         # apply Transformer blocks
         if not self.debug_mode:
@@ -262,7 +263,7 @@ class MaskedAutoencoderViT(nn.Module):
             x = self.decoder_embed(x)
 
             # add pos embed (need to slim it)
-            L = self.decoder_pos_embed.shape[1]
+            L = self.decoder_pos_embed.shape[1] - 1
             indices = mask.sum(1, keepdim=True).expand(B, G, L).reshape(B*G, L)
             indices = torch.cat([torch.ones(B*G, 1, device=indices.device), indices], 1)  # pos embed for cls token
             pos_embed = self.decoder_pos_embed.expand(B*G, -1, -1)
@@ -405,7 +406,7 @@ class MaskedAutoencoderViT(nn.Module):
         # move groups to batch dim to apply to all separatley in parallel
         representations_divided = self.forward_encoder(patches_embeddings_divided.flatten(0, 1))
         B, G, S, E = patches_embeddings_divided.shape
-        representations_divided = representations_divided.view(B, G, S + self.use_cls_token, E)
+        representations_divided = representations_divided.view(B, G, S+self.use_cls_token, E)
         # representations_divided: [B, G, S+1, E] if self.use_cls_token else [B, G, S, E]
 
         # add mask tokens to each group, and unite group reps for the predictor 'ground truth'
