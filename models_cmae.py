@@ -29,7 +29,7 @@ class MaskedAutoencoderViT(nn.Module):
                  decoder_embed_dim=1024, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, 
                  use_cls_token=True, slim_predictor=True, cls_predict_loss=False,
-                 debug_mode=False,  num_groups=2, temperature=0.1,
+                 debug_mode=False, num_groups=2, temperature=0.1,
                  w_batchwise_loss=1., w_patchwise_loss=0., w_batchwise_cls_loss=0.):
         super().__init__()
 
@@ -57,11 +57,6 @@ class MaskedAutoencoderViT(nn.Module):
                 Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
                 for i in range(depth)])
             self.norm = norm_layer(embed_dim)
-        # --------------------------------------------------------------------------
-        if cls_predict_loss:
-            self.cls_predict_tokens_mlp = nn.Sequential(nn.Linear(num_patches, embed_dim, bias=True),
-                                                        nn.GELU(), 
-                                                        nn.Linear(embed_dim, embed_dim, bias=True))
 
         # --------------------------------------------------------------------------
         # MAE decoder specifics
@@ -142,7 +137,7 @@ class MaskedAutoencoderViT(nn.Module):
         x = self.patch_embed(imgs)
 
         # add pos embed w/o cls token
-        x = x + self.pos_embed[:, 1:, :]
+        x = x + self.pos_embed[:, 1:, :]    
 
         return x
 
@@ -204,31 +199,16 @@ class MaskedAutoencoderViT(nn.Module):
         # take care of the cls token
         if self.use_cls_token:
             S = S - 1  # fix S because we intialy added the cls token to the count
-            orig_cls_token = representations_divided[:, :, 0, :]  # [B, G, E]
+            cls_token = representations_divided[:, :, 0:1, :]  # [B G 1 E]
             representations_divided = representations_divided[:, :, 1:, :]
 
-            # create sort of masked cls tokens for predicting other clss, when using this option
-            if self.cls_predict_loss:
-                if not self.debug_mode:
-                    # the masked clss are a function of the mask
-                    cls_tokens = self.cls_predict_tokens_mlp(mask * 1.).unsqueeze(1).float()  # [B, 1, G, E]
-                else:
-                    # this is for debugging
-                    cls_tokens = torch.randint(10, (B, 1, G, E), device=orig_cls_token.device)
-                    orig_cls_token = torch.randint(10, (B, G, E), device=orig_cls_token.device)
-
-                cls_tokens = cls_tokens.repeat(1, G, 1, 1)  # [B, G, G, E]
-                
-                # for every group, its own cls prediction token is just its own cls token 
-                cls_tokens[:, range(G), range(G), :] = orig_cls_token[:, range(G), :]
-            else:
-                cls_tokens = orig_cls_token.unsqueeze(2)
-
+        # we put mask tokens evereywhere, then overwrite with true tokens in the right locations
         representations_divided_expanded = self.mask_token.repeat(B, G, L, 1)
         representations_divided_expanded[mask] = representations_divided.reshape(-1, E)  # [B, G, L, E]
         
         # unite the divided representations by summing along G (only one element is not multiplied by 0)
         representations_united = (representations_divided_expanded * mask.unsqueeze(-1)).sum(1)  # [B, L, E]
+        
         # in this config we throw away mask tokens for patches that are not in any group
         if self.slim_predictor:
             global_mask = mask[0].bool().any(0)  # [L]
@@ -237,45 +217,65 @@ class MaskedAutoencoderViT(nn.Module):
 
         # add the mask tokens in the beginning (adds 0 or G more tokens)
         if self.use_cls_token:
-            representations_divided_expanded = torch.cat([cls_tokens, representations_divided_expanded],
-                                                         2)  # [B, G, G+P, E]
-            if not self.cls_predict_loss:
-                orig_cls_token = orig_cls_token.unsqueeze(2).mean(1)
-            representations_united = torch.cat([orig_cls_token, representations_united], 1)  # [B, 1+P, E]
+            representations_divided_expanded = torch.cat([cls_token, representations_divided_expanded], 2)  # [B, G, G+P, E]
+            representations_united = torch.cat([cls_token.squeeze(2), representations_united], 1)  # [B, C+P, E]
+            image_representation = cls_token.squeeze(2).mean(1)  # [B E]
+        else:
+            image_representation = None
 
-
-        return representations_divided_expanded, representations_united
+        return representations_divided_expanded, representations_united, image_representation
 
 
     def forward_predictor(self, representations_divided, mask):
         """
-        representations_divided: [B, G, C+P, E]
+        representations_divided: [B, G, 1+P, E]
         """
-        B, G, C_plus_P, E = representations_divided.shape
+        B, G, P_plus_1, E = representations_divided.shape
         C = (G - 1) * self.cls_predict_loss + self.use_cls_token
-        P = C_plus_P - C
+        P = P_plus_1 - 1
 
-        # move groups to batch dim to apply blocks
-        x = representations_divided.view(B*G, C+P, E)
+        # embed and reshape groups along the batch dim
+        x = self.decoder_embed(representations_divided.view(B*G, 1+P, E))
+        orig_cls = x.view(B, G, 1+P, -1)[:, :, 0, :]  # [B G E]
 
-        if not self.debug_mode:
-            # embed tokens
-            x = self.decoder_embed(x)
+        Ed = x.shape[-1]
 
-            # add pos embed (need to slim it)
-            L = self.decoder_pos_embed.shape[1] - 1
-            indices = mask.sum(1, keepdim=True).expand(B, G, L).reshape(B*G, L)
-            indices = torch.cat([torch.ones(B*G, 1, device=indices.device), indices], 1)  # pos embed for cls token
-            pos_embed = self.decoder_pos_embed.expand(B*G, -1, -1)
-            x = x + pos_embed[indices.bool()].view(B*G, 1+P, -1)  # note E is encoder embed sz so we used -1 here.
+        # Prepare smart masking for pos embed. only add pos to masked locations
+        L = self.decoder_pos_embed.shape[1] - 1
+        global_mask = mask.sum(1, keepdim=True).expand(B, G, L)
+        masked_mask = mask[global_mask.bool()].view(B, G, P)
+        embeds_mask = ~masked_mask
+        
+        # add ones to include cls token
+        ones = torch.ones(B, G, 1, device=x.device)
+        global_mask = torch.cat([ones, global_mask], 2)
+        embeds_mask = torch.cat([ones, embeds_mask], 2)
 
-            # apply Transformer blocks
-            for blk in self.decoder_blocks:
-                x = blk(x)
-            x = self.decoder_norm(x)
+        # slim the pos embed, then zeroize embedings for the given patches of each group 
+        pos_embed_all = self.decoder_pos_embed.unsqueeze(0).expand(B, G, L+1, Ed)
+        pos_embed = pos_embed_all[global_mask.bool()].view(B, G, P+1, Ed)  # *  embeds_mask.view(B, G, P+1, 1)
 
-            # predictor projection
-            x = self.decoder_pred(x)
+        # add pos embed to x
+        x = x + pos_embed.view(B*G, 1+P, Ed)
+
+        # concat cls prediction tokens
+        if self.cls_predict_loss:
+            pos_embed = pos_embed.view(B, G, *pos_embed.shape[1:])[:, :, 1:]
+            group_avg_pos_embed = pos_embed[mask.bool()].view(B, G, P//G, -1).mean(2)  # [B G E]
+            group_avg_pos_embed = group_avg_pos_embed.unsqueeze(1).expand(B, G, G, -1)
+            
+            x = torch.cat([group_avg_pos_embed, x.view(B, G, 1+P, -1)[:, :, 1:]], 2)  # [B G G+P E]
+            # original cls is on the diagonal of th GxG cls token prediction block
+            x[:, range(G), range(G), :] = orig_cls.float()
+            x = x.view(B*G, G+P, -1)
+
+        # apply Transformer blocks
+        for blk in self.decoder_blocks:
+            x = blk(x)
+        x = self.decoder_norm(x)
+
+        # predictor projection
+        x = self.decoder_pred(x)
 
         pred = x.view(B, G, C+P, E)
 
@@ -293,12 +293,14 @@ class MaskedAutoencoderViT(nn.Module):
         P = C_plus_P - C
         L = mask.shape[-1]
 
-        # # normalize before dot prod. equivalent to cosine-sim
+        # # # normalize before dot prod. equivalent to cosine-sim
         pred = F.normalize(pred, dim=-1)
-        rep = F.normalize(rep, dim=-1) # .detach()
+        rep = F.normalize(rep, dim=-1)  # .detach()
         # separate the cls tokens (cls will be empty if not using because C==0)
         pred_cls, pred = pred[:, :, :C, :], pred[:, :, C:, :]
-        rep_cls, rep = rep[:, :C, :], rep[:, C:, :]
+        rep_cls, rep = rep[:, :G, :], rep[:, G:, :]
+
+        # batchwise_loss = ((pred - rep.unsqueeze(1).detach())).mean(-1) ** 2  # [B G P]
 
         # batchwise is similarity between pred to all the representations of same location in the batch
         # patchwise is  similarity between pred and all the representations of other patches in the same image
@@ -306,12 +308,11 @@ class MaskedAutoencoderViT(nn.Module):
         # pred = rearrange(pred, 'B G P E -> G P B 1 E')
         # rep = rearrange(rep, 'B P E -> 1 P 1 B E')
         # batchwise_similarity_matrix = (pred - rep).pow(2).sum(-1)  # [G P B B]
-        
-        
         if self.w_patchwise_loss:
             patchwise_similarity_matrix = torch.einsum('bgpe,bqe->bgpq', pred, rep)
         else: 
             patchwise_similarity_matrix = None
+       
         if self.cls_predict_loss:  # C==G
             batchwise_cls_similarity_matrix = torch.einsum('bgce,dce->gcbd', pred_cls, rep_cls)
         else:
@@ -410,12 +411,14 @@ class MaskedAutoencoderViT(nn.Module):
         # representations_divided: [B, G, S+1, E] if self.use_cls_token else [B, G, S, E]
 
         # add mask tokens to each group, and unite group reps for the predictor 'ground truth'
-        (representations_divided_expanded, representations_united) = self.arrange_representations(
+        (representations_divided_expanded, 
+         representations_united,
+         image_representation) = self.arrange_representations(
             representations_divided, mask)
         # representations_divided_expanded: [B, G, C+P, E], representations_united: [B, C+P, E]
 
         if mode == 'eval':
-            return self.fc_projector(representations_united[:, 0, :])
+            return self.fc_projector(image_representation)
 
         # for evaluation etc. return the representations here.
         if encode_only:
@@ -426,10 +429,11 @@ class MaskedAutoencoderViT(nn.Module):
         # pred: [B, G, C+P, E]
 
         # calculate the loss for predicting the missing representations
-        loss, loss_batchwise, loss_patchwise, loss_cls, other_stats = self.forward_loss(pred, representations_united,
-                                                                                        mask)
+        (loss, loss_batchwise, 
+         loss_patchwise, loss_cls, 
+         other_stats) = self.forward_loss(pred, representations_united, mask)
         if y is not None:
-            loss += self.forward_eval_loss(representations_united[:, 0, :], y)
+            loss += self.forward_eval_loss(image_representation, y)
 
         # return all intermidates when debugging
         if self.debug_mode:
