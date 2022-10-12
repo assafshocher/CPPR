@@ -13,9 +13,9 @@ class TwoCropsTransform:
         ])
 
         self.separate_transform = transforms.Compose([
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
+            # transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
+            # transforms.RandomGrayscale(p=0.2),
+            # transforms.RandomApply([GaussianBlur([.1, 2.])], p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])

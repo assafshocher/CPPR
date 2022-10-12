@@ -242,7 +242,7 @@ def main(args):
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)
 
-        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+        log_stats = {**{f'{k}': v for k, v in train_stats.items()},
                         'epoch': epoch,}
 
         if args.output_dir and misc.is_main_process():
@@ -266,10 +266,8 @@ def main(args):
 
             stats = dict(
                 epoch=epoch,
-                acc1_h=top1.avg,
-                acc5_h=top5.avg,
-                acc1_z=top1.avg,
-                acc5_z=top5.avg,
+                acc1=top1.avg,
+                acc5=top5.avg,
             )
             print(stats)
             log_stats.update(stats)

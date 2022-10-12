@@ -33,7 +33,7 @@ nvidia-smi
 # script you'll only get updated every several lines printed.
 export PYTHONUNBUFFERED=1
 
-OUTPUT_DIR='/home/assafsho/CPPR/temperature_05_no_cls_pred_fixed'
+OUTPUT_DIR='/home/assafsho/CPPR/cross_corr_gs_49_aug_0'
 mkdir ${OUTPUT_DIR}
 # DATA_PATH='/shared/group/ilsvrc'
 DATA_PATH='/home/assafsho/data/ILSVRC2012'
@@ -45,9 +45,11 @@ python -m torch.distributed.launch --nproc_per_node=8 main_pretrain.py \
         --model mae_vit_base_patch16 \
         --save_ckpt_freq 5 \
         --input_size 224 \
-        --batch_size 256 \
+        --batch_size 512 \
         --warmup_epochs 40 \
         --epochs 800 \
+        --group_sz 49 \
+        --num_groups 2 \
         --blr 1.5e-4 \
         --temperature 0.1 \
         --output_dir ${OUTPUT_DIR}  \
