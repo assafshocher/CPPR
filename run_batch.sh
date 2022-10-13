@@ -25,7 +25,7 @@ do
                 partition=devlab
               fi
 
-              OUTPUT_DIR="cmae_temp_${TEMPERATURE}_blr_${BLR}"
+              OUTPUT_DIR="CROSS_temp_${TEMPERATURE}_blr_${BLR}_wpred_${W_PRED_LOSS}_wpred_${W_PRED_LOSS}_wbatch_${W_BATCHWISE_LOSS}_wpatch_${W_PATCHWISE_LOSS}${DETACH}"
               python submitit_pretrain.py \
                       --job_dir ${JOB_DIR}/${OUTPUT_DIR} \
                       --output_dir ${JOB_DIR}/${OUTPUT_DIR}  \
