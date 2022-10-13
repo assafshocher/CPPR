@@ -30,7 +30,7 @@ class MaskedAutoencoderViT(nn.Module):
                  mlp_ratio=4., norm_layer=nn.LayerNorm, 
                  use_cls_token=True, slim_predictor=True, cls_predict_loss=False,
                  debug_mode=False,  num_groups=2, temperature=0.1,
-                 w_batchwise_loss=1., w_patchwise_loss=1., w_pred_loss=1.):
+                 w_batchwise_loss=1., w_patchwise_loss=1., w_pred_loss=1., detach=False):
         super().__init__()
 
         # --------------------------------------------------------------------------
@@ -43,6 +43,7 @@ class MaskedAutoencoderViT(nn.Module):
         self.w_patchwise_loss = w_patchwise_loss
         self.w_pred_loss = w_pred_loss
         self.criterion = torch.nn.CrossEntropyLoss()
+        self.detach = detach
 
         # MAE encoder specifics
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
@@ -305,6 +306,8 @@ class MaskedAutoencoderViT(nn.Module):
         patchwise_loss = self.criterion(patchwise_logits, patchwise_labels)
 
         # calc prediction loss (without cls)
+        if self.detach:
+            rep = rep.detach()
         pred_loss = (pred[:,:, C:, :] - rep.unsqueeze(1)[:,:, C:, :]).pow(2).mean(dim=-1)  # [B, G, P]
 
         # like MAE, take loss only for predicted

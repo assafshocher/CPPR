@@ -114,6 +114,12 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://',
                         help='url used to set up distributed training')
 
+    # losses parameters
+    parser.add_argument('--detach', action='store_true', help='for pred loss, detach reps?')
+    parser.add_argument('--w_pred_loss', type=float, default=1., help='pred loss weight')
+    parser.add_argument('--w_batchwise_loss', type=float, default=1., help='batchwise loss weight')
+    parser.add_argument('--w_patchwise_loss', type=float, default=1., help='patchwise loss weight')
+
     return parser
 
 
@@ -196,7 +202,11 @@ def main(args):
     )
     
     # define the model
-    model = models_cmae.__dict__[args.model](temperature=args.temperature)
+    model = models_cmae.__dict__[args.model](temperature=args.temperature,
+                                             detach=args.detach,
+                                             w_pred_loss=args.w_pred_loss,
+                                             w_batchwise_loss=args.w_batchwise_loss,
+                                             w_patchwise_loss=args.w_patchwise_loss)
 
     model.to(device)
 
