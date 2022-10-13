@@ -51,10 +51,10 @@ python -m torch.distributed.launch --nproc_per_node=8 main_pretrain.py \
         --group_sz 49 \
         --num_groups 2 \
         --blr 1.5e-4 \
-        --temperature 0.1 \
-        --w_pred_loss 1.0 \
-        --w_batchwise_loss 1.0 \
-        --w_patchwise_loss 1.0 \
+        --temperature 1.0 \
+        --w_pred_loss 0.3333333 \
+        --w_batchwise_loss 0.333333 \
+        --w_patchwise_loss 0.333333 \
         --output_dir ${OUTPUT_DIR}  \
         --project_name "linear_prob_comparison" \
         --dist_url "file://$OUTPUT_DIR/$TIME" \
