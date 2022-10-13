@@ -128,7 +128,7 @@ done
 
 for TEMPERATURE in 0.1 1.0 
 do
-  for W_PRED_LOSS in 0.3333 0.1 1.0
+  for W_PRED_LOSS in 0.3333 0.1 1.0 3.333333
   do
     for BLR in 1.5e-5 1e-5 1.5e-4
     do
