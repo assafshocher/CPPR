@@ -282,7 +282,7 @@ class MaskedAutoencoderViT(nn.Module):
         L = mask.shape[-1]
 
         # wc = with context. nc = no context.
-        rep_wc_projected = self.fc_for_cross_corr_reps(rep[:, C:, :])
+        rep_wc_projected = self.fc_for_cross_corr_reps(pred[:, :, C:, :].mean(1))
         rep_nc_projected = self.fc_for_cross_corr_embs(rep_contextless)
 
         # normalize
@@ -305,16 +305,18 @@ class MaskedAutoencoderViT(nn.Module):
         batchwise_loss = self.criterion(batchwise_logits, batchwise_labels)
         patchwise_loss = self.criterion(patchwise_logits, patchwise_labels)
 
-        # calc prediction loss (without cls)
-        if self.detach:
-            rep = rep.detach()
-        pred_loss = (pred[:,:, C:, :] - rep.unsqueeze(1)[:,:, C:, :]).pow(2).mean(dim=-1)  # [B, G, P]
+        # # calc prediction loss (without cls)
+        # if self.detach:
+        #     rep = rep.detach()
+        # pred_loss = (pred[:,:, C:, :] - rep.unsqueeze(1)[:,:, C:, :]).pow(2).mean(dim=-1)  # [B, G, P]
 
-        # like MAE, take loss only for predicted
-        if self.slim_predictor:
-            mask = mask[mask.bool().any(1, keepdim=True).expand(B, G, L)].view(B, G, P)
-        inv_mask = ~mask
-        pred_loss = (pred_loss * inv_mask).sum() / inv_mask.sum()  # mean loss on removed patches
+        pred_loss = pred.var(1, unbiased=True).mean()
+
+        # # like MAE, take loss only for predicted
+        # if self.slim_predictor:
+        #     mask = mask[mask.bool().any(1, keepdim=True).expand(B, G, L)].view(B, G, P)
+        # inv_mask = ~mask
+        # pred_loss = (pred_loss * inv_mask).sum() / inv_mask.sum()  # mean loss on removed patches
 
         # combine all the losses
         loss = (self.w_batchwise_loss * batchwise_loss + 
