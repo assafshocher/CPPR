@@ -11,11 +11,10 @@
 import argparse
 import datetime
 import json
-import numpy as np
 import os
 import time
 from pathlib import Path
-
+from glob import glob
 import torch
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
@@ -86,10 +85,8 @@ def get_args_parser():
 
     parser.add_argument('--output_dir', default='./output_dir',
                         help='path where to save, empty for no saving')
-    parser.add_argument('--log_dir', default='./output_dir',
-                        help='path where to tensorboard log')
     parser.add_argument('--project_name', default='cmae',
-                        help='path where to tensorboard log')  
+                        help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
@@ -144,7 +141,7 @@ def main(args):
     #         transforms.RandomHorizontalFlip(),
     #         transforms.ToTensor(),
     #         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
-    dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), 
+    dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'val'),
                                          transform=TwoCropsTransform(args.input_size, args.num_groups))
     print(dataset_train)
     val_dataset = datasets.ImageFolder(os.path.join(args.data_path, "val"),
@@ -179,8 +176,8 @@ def main(args):
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
 
     log_writer = None
-    if global_rank == 0 and args.log_dir is not None:
-        os.makedirs(args.log_dir, exist_ok=True)
+    if global_rank == 0 and args.output_dir is not None:
+        os.makedirs(args.output_dir, exist_ok=True)
         if args.use_wandb:
             try:
                 import wandb
@@ -233,6 +230,10 @@ def main(args):
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()
+
+    if args.resume == '':
+        fn = sorted(glob(os.path.join(args.output_dir, "checkpoint-*.pth")), key=lambda x: x.split('-')[1].split('.')[0])[-1]
+        args.resume = fn
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
