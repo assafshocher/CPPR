@@ -33,7 +33,7 @@ nvidia-smi
 # script you'll only get updated every several lines printed.
 export PYTHONUNBUFFERED=1
 
-OUTPUT_DIR='/home/assafsho/CPPR/cross_corr_gs_49_aug_0'
+OUTPUT_DIR='/home/assafsho/CPPR/C_bsz224_w333_dontmaskcontextless--detach'
 mkdir ${OUTPUT_DIR}
 # DATA_PATH='/shared/group/ilsvrc'
 DATA_PATH='/home/assafsho/data/ILSVRC2012'
@@ -45,21 +45,21 @@ python -m torch.distributed.launch --nproc_per_node=8 main_pretrain.py \
         --model mae_vit_base_patch16 \
         --save_ckpt_freq 5 \
         --input_size 224 \
-        --batch_size 512 \
-        --warmup_epochs 40 \
-        --epochs 800 \
+        --batch_size 224 \
         --group_sz 49 \
         --num_groups 2 \
-        --blr 1.5e-4 \
-        --temperature 1.0 \
-        --w_pred_loss 0.3333333 \
-        --w_batchwise_loss 0.333333 \
-        --w_patchwise_loss 0.333333 \
+        --warmup_epochs 40 \
+        --epochs 800 \
+        --blr 1.5e-5 \
+        --w_pred_loss 0.3333 \
+        --w_batchwise_loss 0.3333 \
+        --w_patchwise_loss 0.3333 \
+        --temperature 0.1 \
         --output_dir ${OUTPUT_DIR}  \
         --project_name "linear_prob_comparison" \
         --dist_url "file://$OUTPUT_DIR/$TIME" \
         --weight_decay 0.5 \
-        # --detach \
+        --detach \
         # --resume "/home/assafsho/mae/large/checkpoint-165.pth"  \
         
 

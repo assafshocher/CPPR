@@ -132,8 +132,6 @@ class MaskedAutoencoderViT(nn.Module):
     def random_divide(self, x, num_groups, group_sz, group_duplicates):
         """
         x: [B*G, L, E] if group_duplicates else [B, L, E]
-        x_out: [B, G, S, E]
-        mask: [B, G, L], indicator along G-dim which group this patch belongs to, all 0 means no-one.
         """
         A, L, E = x.shape  # A might be B*G or just B
         G = num_groups
@@ -150,12 +148,12 @@ class MaskedAutoencoderViT(nn.Module):
         assert G * S <= L
 
         # create a random binary mask per group
-        perm = torch.randperm(L, device=x.device)[None, :]
-        lower_bds = S * torch.arange(G, device=x.device)[:, None]
-        mask = (perm >= lower_bds) * (perm < lower_bds + S)[None, ...].expand(B, G, L)
+        perm = torch.argsort(torch.rand(B, L, device=x.device), dim=-1).view(B, 1, L)
+        lower_bds = S * torch.arange(G, device=x.device)[None, :, None]
+        mask = (perm >= lower_bds) * (perm < lower_bds + S)  # [B, G, G*S]
 
-        # mask embds without pos embeding
-        embds_no_pos_masked = x[mask]  # [B, G, S, E]
+        # embds without pos embeding
+        embds_no_pos_unmasked = x[: , 0]  # [mask].view(B, G, S, E)
         
         # add pos embd
         x = x + self.pos_embed[:, 1:, :]
@@ -163,7 +161,7 @@ class MaskedAutoencoderViT(nn.Module):
         # mask embds with pos embeding
         embds_with_pos_masked = x[mask].view(B, G, S, E)
         
-        return embds_with_pos_masked, embds_no_pos_masked, mask
+        return embds_with_pos_masked, embds_no_pos_unmasked, mask
 
     def forward_encoder(self, x):
         """
@@ -189,7 +187,7 @@ class MaskedAutoencoderViT(nn.Module):
         return x
 
         
-    def arrange_reps(self, reps_divided, embds_no_pos_divided, mask):
+    def arrange_reps(self, reps_divided, mask):
         """
         reps_divided: [B, G, S+1, E] if self.use_cls_token else [B, G, S, E]
         mask: [B, G, L], indicator along G-dim which group this patch belongs to, all 0 means no-one.
@@ -204,34 +202,29 @@ class MaskedAutoencoderViT(nn.Module):
             reps_divided = reps_divided[:, :, 1:, :]
             cls_tokens = orig_cls_token.unsqueeze(2)
 
-        # expand the reps and embds with mask tokens for the missing patches in each group
+        # expand the reps with mask tokens for the missing patches in each group
         expanded_mask_token = self.mask_token.repeat(B, G, L, 1)
         reps_divided_expanded = expanded_mask_token
         reps_divided_expanded[mask] = reps_divided.reshape(-1, E)  # [B, G, L, E]
-        embds_no_pos_divided_expanded = expanded_mask_token
-        embds_no_pos_divided_expanded[mask] = embds_no_pos_divided.reshape(-1, E).to(embds_no_pos_divided_expanded.dtype)  # [B, G, L, E]
         
         # unite the divided reps by summing along G (only one element is not multiplied by 0)
         reps_united = (reps_divided_expanded * mask.unsqueeze(-1)).sum(1)  # [B, L, E]
-        embds_contextless_united = (embds_no_pos_divided_expanded * mask.unsqueeze(-1)).sum(1)  # [B, L, E]
         
         # in this config we throw away mask tokens for patches that are not in any group
         if self.slim_predictor:
-            global_mask = mask[0].bool().any(0)  # [L]
-            reps_divided_expanded = reps_divided_expanded[:, :, global_mask, :]  # [B, G, S, E]
-            reps_united = reps_united[:, global_mask, :]  # [B, G*S, E]
-            embds_contextless_united = embds_contextless_united[:, global_mask, :]  # [B, G*S, E]  
+            global_mask = mask.bool().any(1) # [B, L]
+            reps_divided_expanded = reps_divided_expanded[global_mask[:, None, :].expand(B, G, L)].view(B, G, G*S, E)
+            reps_united = reps_united[global_mask].view(B, G*S, E)
 
         # add the mask tokens in the beginning (adds 0 or G more tokens)
         if self.use_cls_token:
-            reps_divided_expanded = torch.cat([cls_tokens, reps_divided_expanded],
-                                                         2)  # [B, G, G+P, E]
+            reps_divided_expanded = torch.cat([cls_tokens, reps_divided_expanded], 2)  # [B, G, G+P, E]
             if not self.cls_predict_loss:
                 orig_cls_token = orig_cls_token.unsqueeze(2).mean(1)
             reps_united = torch.cat([orig_cls_token, reps_united], 1)  # [B, 1+P, E]
 
 
-        return reps_divided_expanded, reps_united, embds_contextless_united
+        return reps_divided_expanded, reps_united
 
 
     def forward_predictor(self, reps_divided, mask):
@@ -290,16 +283,24 @@ class MaskedAutoencoderViT(nn.Module):
         rep_nc_projected_normed = F.normalize(rep_nc_projected, dim=-1)
 
         # calc similarity matrices, batchwise and patchwise
-        batchwise_cross_mat = torch.einsum('bpe,cpe->pbc', rep_wc_projected_normed, rep_nc_projected_normed)
-        patchwise_cross_mat = torch.einsum('bpe,bqe->bpq', rep_wc_projected_normed, rep_nc_projected_normed)
+        rep_nc_projected_masked = rep_nc_projected_normed[mask.any(1)].view(B, P, E)
+        batchwise_cross_mat = torch.einsum('BPE,CPE->PBC', rep_wc_projected_normed, rep_nc_projected_masked)  # [P, B, B]
+        patchwise_cross_mat = torch.einsum('BPE,BLE->BPL', rep_wc_projected_normed, rep_nc_projected_normed)  # [B, P, L]
+
+        # we add extra negative examples to the batchwise (assumption: P <= L/2)
+        rep_nc_projected_extra = rep_nc_projected_normed[~(mask.any(1))].view(B, P, E)
+        perm = torch.argsort(torch.rand(B, L-P, device=rep.device), dim=-1)[:, :P, None].repeat(1, 1, E)  # [B, P, E]
+        rep_nc_projected_extra = torch.gather(rep_nc_projected_extra, dim=1, index=perm)
+        extra_batchwise = torch.einsum('BPE,CPE->PBC', rep_wc_projected_normed, rep_nc_projected_extra)  # [P, B, B]
+        batchwise_cross_mat = torch.cat([batchwise_cross_mat, extra_batchwise], 2)  # [P, B, 2B]
 
         # for CE we create logits, s.t. the number of classes is the number of exapmples we contrast with
-        batchwise_logits = batchwise_cross_mat.reshape(P*B, B)  / self.temperature
-        patchwise_logits = patchwise_cross_mat.reshape(B*P, P)  / self.temperature
+        batchwise_logits = batchwise_cross_mat.reshape(P*B, 2*B)  / self.temperature
+        patchwise_logits = patchwise_cross_mat.reshape(B*P, L)  / self.temperature
 
         # since the positive examples are on the main diag, the labels are 0,1,2,3...
         batchwise_labels = torch.arange(B, dtype=torch.long, device=rep.device).repeat(P)
-        patchwise_labels = torch.arange(P, dtype=torch.long, device=pred.device).repeat(B)
+        patchwise_labels = mask.any(1).nonzero()[:,1]
 
         # apply CE loss
         batchwise_loss = self.criterion(batchwise_logits, batchwise_labels)
@@ -308,12 +309,12 @@ class MaskedAutoencoderViT(nn.Module):
         # calc prediction loss (without cls)
         if self.detach:
             rep = rep.detach()
-        pred_loss = (pred[:,:, C:, :] - rep.unsqueeze(1)[:,:, C:, :]).pow(2).mean(dim=-1)  # [B, G, P]
+        pred_loss = (pred - rep.unsqueeze(1)).pow(2).mean(dim=-1)
 
         # like MAE, take loss only for predicted
         if self.slim_predictor:
             mask = mask[mask.bool().any(1, keepdim=True).expand(B, G, L)].view(B, G, P)
-        inv_mask = ~mask
+        inv_mask = torch.cat([torch.ones(B, G, 1, device=mask.device), ~mask], 2) 
         pred_loss = (pred_loss * inv_mask).sum() / inv_mask.sum()  # mean loss on removed patches
 
         # combine all the losses
@@ -350,9 +351,8 @@ class MaskedAutoencoderViT(nn.Module):
 
         # divide to groups
         (embds_with_pos_divided, 
-         embds_no_pos_divided, 
-         mask) = self.random_divide(patch_embds, num_groups, group_sz, group_duplicates)
-        # embds_[with/no]_pos_divided: [B, G, S, E], mask: [B, G, L] (B is just .expand for convenience)
+         reps_contextless, mask) = self.random_divide(patch_embds, num_groups, group_sz, group_duplicates)
+        # embds_[with/no]_pos_divided: [B, G, S, E], mask: [B, G, L]
 
         # apply encoder to groups separately to get reps
         # move groups to batch dim to apply to all separatley in parallel
@@ -360,11 +360,7 @@ class MaskedAutoencoderViT(nn.Module):
         # reps_divided: [B, G, S+1, E] if self.use_cls_token else [B, G, S, E]
 
         # add mask tokens to each group, and unite group reps for the predictor 'ground truth'
-        (reps_divided_expanded, 
-         reps_united, 
-         reps_contextless_united) = self.arrange_reps(reps_divided, 
-                                                                 embds_no_pos_divided, 
-                                                                 mask)
+        (reps_divided_expanded, reps_united) = self.arrange_reps(reps_divided, mask)
         # reps_divided_expanded: [B, G, C+P, E], reps_united: [B, C+P, E]
 
         # for evaluation
@@ -381,7 +377,7 @@ class MaskedAutoencoderViT(nn.Module):
         (loss, 
          loss_pred, 
          loss_batchwise, 
-         loss_patchwise) = self.forward_loss(pred, reps_united, mask, reps_contextless_united)
+         loss_patchwise) = self.forward_loss(pred, reps_united, mask, reps_contextless)
         
         # Evaluate linear probing
         if y is not None:
