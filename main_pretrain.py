@@ -22,7 +22,7 @@ import torchvision.datasets as datasets
 from data_transforms import TwoCropsTransform
 from util.misc import  accuracy, AverageMeter
 import timm
-
+from engine_finetune import evaluate_ours
 # assert timm.__version__ == "0.3.2"  # version check
 import timm.optim.optim_factory as optim_factory
 
@@ -163,8 +163,6 @@ def main(args):
         pin_memory=True,
     )
 
-    val_loader = torch.utils.data.DataLoader(val_dataset, **kwargs)
-
     if True:  # args.distributed:
         num_tasks = misc.get_world_size()
         global_rank = misc.get_rank()
@@ -172,8 +170,24 @@ def main(args):
             dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
         )
         print("Sampler_train = %s" % str(sampler_train))
+        if len(val_dataset) % num_tasks != 0:
+            print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
+                  'This will slightly alter validation results as extra duplicate entries are added to achieve '
+                  'equal num of samples per-process.')
+        sampler_val = torch.utils.data.DistributedSampler(
+            val_dataset, num_replicas=num_tasks, rank=global_rank, shuffle=True)  # shuffle=True to reduce monitor bias
+
     else:
         sampler_train = torch.utils.data.RandomSampler(dataset_train)
+        sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, sampler=sampler_val,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        pin_memory=args.pin_mem,
+        drop_last=False
+    )
 
     log_writer = None
     if global_rank == 0 and args.output_dir is not None:
@@ -222,7 +236,7 @@ def main(args):
     print("effective batch size: %d" % eff_batch_size)
 
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=False)
         model_without_ddp = model.module
     
     # following timm: set wd as 0 for bias and norm layers
@@ -232,8 +246,10 @@ def main(args):
     loss_scaler = NativeScaler()
 
     if args.resume == '':
-        fn = sorted(glob(os.path.join(args.output_dir, "checkpoint-*.pth")), key=lambda x: x.split('-')[1].split('.')[0])[-1]
-        args.resume = fn
+        fns = glob(os.path.join(args.output_dir, "checkpoint-*.pth"))
+        if len(fns) > 0:
+            fn = sorted(fns, key=lambda x: x.split('-')[1].split('.')[0])[-1]
+            args.resume = fn
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
@@ -256,36 +272,16 @@ def main(args):
         log_stats = {**{f'{k}': v for k, v in train_stats.items()},
                         'epoch': epoch,}
 
+        stats = evaluate_ours(val_loader, model, device)
         if args.output_dir and misc.is_main_process():
             if log_writer is not None:
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
 
-            top1 = AverageMeter("Acc@1")
-            top5 = AverageMeter("Acc@5")
-
-            with torch.no_grad():
-                model.eval()
-                for images, target in val_loader:
-                    output = model(images.cuda(device, non_blocking=True), 1, 196, mode='eval')
-                    acc1, acc5 = accuracy(
-                        output, target.cuda(device, non_blocking=True), topk=(1, 5)
-                    )
-                    top1.update(acc1[0].item(), images.size(0))
-                    top5.update(acc5[0].item(), images.size(0))
-
-            stats = dict(
-                epoch=epoch,
-                acc1=top1.avg,
-                acc5=top5.avg,
-            )
-            print(stats)
             log_stats.update(stats)
             if args.use_wandb:
                 wandb.log(log_stats)
-
-            model.train()
 
         if epoch > args.kill_after:
             break

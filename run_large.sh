@@ -9,7 +9,7 @@ COUNTER=0
 
 for TEMPERATURE in 0.1
 do
-  for W_PRED_LOSS in 0.33333 0.1
+  for W_PRED_LOSS in 0.33333
   do
     for BLR in 1.5e-5
     do
@@ -17,26 +17,26 @@ do
       do
         for W_PATCHWISE_LOSS in 0.3333
         do
-          for GROUP_SZ in 40 49
+          for GROUP_SZ in 49
           do
             for DETACH in '--detach'
             do
                 if ((${COUNTER} > 3)); then
-                  partition=learnfair
+                  partition=devlab
                 else
-                  partition=learnfair
+                  partition=devlab
                 fi
 
-                OUTPUT_DIR="CROSS_tmp${TEMPERATURE}_blr${BLR}_gsz${GROUP_SZ}_wpr${W_PRED_LOSS}_wba${W_BATCHWISE_LOSS}_wpa${W_PATCHWISE_LOSS}${DETACH}"
+                OUTPUT_DIR="CROSS_tmp${TEMPERATURE}_blr${BLR}_gsz${GROUP_SZ}_wpr${W_PRED_LOSS}_wba${W_BATCHWISE_LOSS}_wpa${W_PATCHWISE_LOSS}${DETACH}_large"
                 python submitit_pretrain.py \
                         --job_dir ${JOB_DIR}/${OUTPUT_DIR} \
                         --output_dir ${JOB_DIR}/${OUTPUT_DIR}  \
                         --data_path ${DATA_PATH} \
                         --temperature ${TEMPERATURE} \
-                        --nodes 1 \
+                        --nodes 4 \
                         --use_volta32 \
-                        --batch_size 224 \
-                        --model mae_vit_base_patch16 \
+                        --batch_size 64 \
+                        --model mae_vit_large_patch16 \
                         --save_ckpt_freq 5 \
                         --input_size 224 \
                         --warmup_epochs 40 \
