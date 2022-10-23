@@ -45,11 +45,11 @@ class MaskedAutoencoderViT(nn.Module):
         self.criterion = torch.nn.CrossEntropyLoss()
         self.detach = detach
 
-        self.coeff_ginvar =25.
-        self.coeff_bvar = 25.
-        self.coeff_pvar = 25.
-        self.coeff_fcov = 1.
-        self.coeff_pcross = 1.
+        self.coeff_ginvar =25.  # group invariance (equivalent to MSE for G=2)
+        self.coeff_bvar = 25.  # batchwise variance
+        self.coeff_pvar = 25.  # patchwise variance
+        self.coeff_fcov = 1.  # feature covariance
+        self.coeff_pcross = 1.  # feature X pos_embd cross-covariance
         self.use_contextless = False
 
         # MAE encoder specifics
@@ -346,8 +346,6 @@ class MaskedAutoencoderViT(nn.Module):
                 self.coeff_fcov * loss_featurewise_cov +
                 self.coeff_pcross * loss_pos_cross_cov)
         
-        print(loss, loss_groupwise_invar, loss_batchwise_var, loss_patchwise_var, loss_featurewise_cov, loss_pos_cross_cov)
-
         return loss, loss_groupwise_invar, loss_batchwise_var, loss_patchwise_var, loss_featurewise_cov, loss_pos_cross_cov
 
 
