@@ -45,6 +45,13 @@ class MaskedAutoencoderViT(nn.Module):
         self.criterion = torch.nn.CrossEntropyLoss()
         self.detach = detach
 
+        self.coeff_ginvar =25.
+        self.coeff_bvar = 25.
+        self.coeff_pvar = 25.
+        self.coeff_fcov = 1.
+        self.coeff_pcross = 1.
+        self.use_contextless = False
+
         # MAE encoder specifics
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
         num_patches = self.patch_embed.num_patches
@@ -80,12 +87,13 @@ class MaskedAutoencoderViT(nn.Module):
             self.decoder_pred = nn.Linear(decoder_embed_dim, embed_dim, bias=True) # decoder to embedding
         # --------------------------------------------------------------------------
         self.fc_for_cross_corr_reps = nn.Sequential(nn.Linear(embed_dim, embed_dim, bias=True),
-                                               nn.GELU(), 
-                                               nn.Linear(embed_dim, embed_dim, bias=True))
-
-        self.fc_for_cross_corr_embs = nn.Sequential(nn.Linear(embed_dim, embed_dim, bias=True),
                                                     nn.GELU(), 
                                                     nn.Linear(embed_dim, embed_dim, bias=True))
+
+        self.fc_for_cross_corr_embs = nn.Sequential(nn.Linear(embed_dim, embed_dim, bias=True),
+                                                    nn.GELU(),
+                                                    nn.Linear(embed_dim, embed_dim, bias=True),
+                                                    nn.GELU())
 
 
         self.fc_projector = torch.nn.Linear(embed_dim, 1000)
@@ -281,47 +289,66 @@ class MaskedAutoencoderViT(nn.Module):
         P = C_plus_P - C
         L = mask.shape[-1]
 
-        # wc = with context. nc = no context.
-        rep_wc_projected = self.fc_for_cross_corr_reps(rep[:, C:, :])
-        rep_nc_projected = self.fc_for_cross_corr_embs(rep_contextless)
+        preds = pred
 
-        # normalize
-        rep_wc_projected_normed = F.normalize(rep_wc_projected, dim=-1)
-        rep_nc_projected_normed = F.normalize(rep_nc_projected, dim=-1)
+        if self.use_contextless:
+            # project contextless representations by MLP on pixels
+            rep_contextless = self.fc_for_cross_corr_embs(rep_contextless)  # [B, P, E]
+            # cat contextless as another group
+            preds = torch.cat(preds[:, :, C:, :], rep_contextless.unsqueeze(1))  # [B, G+1, P, E]
 
-        # calc similarity matrices, batchwise and patchwise
-        batchwise_cross_mat = torch.einsum('bpe,cpe->pbc', rep_wc_projected_normed, rep_nc_projected_normed)
-        patchwise_cross_mat = torch.einsum('bpe,bqe->bpq', rep_wc_projected_normed, rep_nc_projected_normed)
+        # groupwise invariance loss
+        loss_groupwise_invar = preds.var(1).mean()  # if G==2 equivalent to MSE
 
-        # for CE we create logits, s.t. the number of classes is the number of exapmples we contrast with
-        batchwise_logits = batchwise_cross_mat.reshape(P*B, B)  / self.temperature
-        patchwise_logits = patchwise_cross_mat.reshape(B*P, P)  / self.temperature
+        # batchwise variance loss
+        std_batchwise = (preds.var(0) + 0.0001).sqrt()
+        loss_batchwise_var = F.relu(1 - std_batchwise).mean()
 
-        # since the positive examples are on the main diag, the labels are 0,1,2,3...
-        batchwise_labels = torch.arange(B, dtype=torch.long, device=rep.device).repeat(P)
-        patchwise_labels = torch.arange(P, dtype=torch.long, device=pred.device).repeat(B)
+        # patchwise variance loss
+        std_patchwise = (preds.var(2) + 0.0001).sqrt()
+        loss_patchwise_var = F.relu(1 - std_patchwise).mean()       
 
-        # apply CE loss
-        batchwise_loss = self.criterion(batchwise_logits, batchwise_labels)
-        patchwise_loss = self.criterion(patchwise_logits, patchwise_labels)
+        # featurewise covariance loss
+        N = B * (G + self.use_contextless) * (P + C)
+        preds_flat = preds.view(N, E)
+        preds_flat = preds_flat - preds_flat.mean(0)
+        cov = (preds_flat.T @ preds_flat) / (N - 1)  # [E, E]
+        off_diag = cov.flatten()[:-1].view(E - 1, E + 1)[:, 1:].flatten()
+        loss_featurewise_cov = off_diag.pow(2).sum() / E
 
-        # calc prediction loss (without cls)
-        if self.detach:
-            rep = rep.detach()
-        pred_loss = (pred[:,:, C:, :] - rep.unsqueeze(1)[:,:, C:, :]).pow(2).mean(dim=-1)  # [B, G, P]
+        # mask pos embds  (assume here self.use_contextless is False)
+        N = B * G * P
+        global_mask = mask[0].bool().any(0)  # [L]
+        global_mask = torch.cat([torch.zeros(1, dtype=bool, device=pred.device), global_mask])  # [L+1] throw away cls token pos embd
+        enc_pos_embed = self.pos_embed[:, None, global_mask, :].repeat(B, G, 1, 1).view(N, E)
+        pred_pos_embed = self.decoder_pos_embed[:, None, global_mask, :].repeat(B, G, 1, 1).view(N, -1)  # -1 because it's predictor embd dim
 
-        # like MAE, take loss only for predicted
-        if self.slim_predictor:
-            mask = mask[mask.bool().any(1, keepdim=True).expand(B, G, L)].view(B, G, P)
-        inv_mask = ~mask
-        pred_loss = (pred_loss * inv_mask).sum() / inv_mask.sum()  # mean loss on removed patches
+        # centering 
+        enc_pos_embed = enc_pos_embed - enc_pos_embed.mean(1, keepdim=True)
+        pred_pos_embed = pred_pos_embed - pred_pos_embed.mean(1, keepdim=True)
+
+        # create matrices
+        preds_flat_no_cls = preds[:, :, C:, :].reshape(N, E)
+        preds_flat_no_cls = preds_flat_no_cls - preds_flat.mean(0)
+
+        # scale to prevent inf, insterad of dividing after composing the matrices
+        s = (N - 1.) ** 0.5
+        preds_flat_no_cls, enc_pos_embed, pred_pos_embed = preds_flat_no_cls / s , enc_pos_embed / s, pred_pos_embed / s
+
+        cross_cov_pos_enc = (preds_flat_no_cls.T @ enc_pos_embed) # [E, E]
+        cross_cov_pos_pred = (preds_flat_no_cls.T @ pred_pos_embed) # [E, Ep]  Ep is embd size in predictor
+        loss_pos_cross_cov = 0.5 * (cross_cov_pos_enc.pow(2).sum() + cross_cov_pos_pred.pow(2).sum()) / E
 
         # combine all the losses
-        loss = (self.w_batchwise_loss * batchwise_loss + 
-                self.w_patchwise_loss * patchwise_loss +
-                self.w_pred_loss * pred_loss)
+        loss = (self.coeff_ginvar * loss_groupwise_invar + 
+                self.coeff_bvar * loss_batchwise_var +
+                self.coeff_pvar * loss_patchwise_var +
+                self.coeff_fcov * loss_featurewise_cov +
+                self.coeff_pcross * loss_pos_cross_cov)
+        
+        print(loss, loss_groupwise_invar, loss_batchwise_var, loss_patchwise_var, loss_featurewise_cov, loss_pos_cross_cov)
 
-        return loss, pred_loss, batchwise_loss, patchwise_loss
+        return loss, loss_groupwise_invar, loss_batchwise_var, loss_patchwise_var, loss_featurewise_cov, loss_pos_cross_cov
 
 
     def forward_eval_loss(self, h, y):
@@ -379,18 +406,20 @@ class MaskedAutoencoderViT(nn.Module):
 
         # calculate the loss for predicting the missing reps
         (loss, 
-         loss_pred, 
-         loss_batchwise, 
-         loss_patchwise) = self.forward_loss(pred, reps_united, mask, reps_contextless_united)
+        loss_groupwise_invar, 
+        loss_batchwise_var, 
+        loss_patchwise_var, 
+        loss_featurewise_cov, 
+        loss_pos_cross_cov) = self.forward_loss(pred, reps_united, mask, reps_contextless_united)
         
         # Evaluate linear probing
         if y is not None:
             loss_lin_prob = self.forward_eval_loss(reps_united[:, 0, :], y)
-            loss += loss_lin_prob
+            loss += loss_lin_prob / 10.
         else:
             loss_lin_prob = 0
             
-        return loss, loss_pred, loss_batchwise, loss_patchwise, loss_lin_prob
+        return loss, loss_groupwise_invar, loss_batchwise_var, loss_patchwise_var, loss_featurewise_cov, loss_pos_cross_cov, loss_lin_prob
 
 
 
