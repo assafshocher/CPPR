@@ -27,7 +27,7 @@ do
                   partition=devlab
                 fi
 
-                OUTPUT_DIR="CROSS_tmp${TEMPERATURE}_blr${BLR}_gsz${GROUP_SZ}_wpr${W_PRED_LOSS}_wba${W_BATCHWISE_LOSS}_wpa${W_PATCHWISE_LOSS}${DETACH}_large"
+                OUTPUT_DIR="CROSS_tmp${TEMPERATURE}_blr${BLR}_gsz${GROUP_SZ}_wpr${W_PRED_LOSS}_wba${W_BATCHWISE_LOSS}_wpa${W_PATCHWISE_LOSS}${DETACH}_large_e1600"
                 python submitit_pretrain.py \
                         --job_dir ${JOB_DIR}/${OUTPUT_DIR} \
                         --output_dir ${JOB_DIR}/${OUTPUT_DIR}  \
@@ -40,7 +40,7 @@ do
                         --save_ckpt_freq 5 \
                         --input_size 224 \
                         --warmup_epochs 40 \
-                        --epochs 800 \
+                        --epochs 1600 \
                         --blr ${BLR} \
                         --group_sz ${GROUP_SZ} \
                         --w_pred_loss ${W_PRED_LOSS} \
