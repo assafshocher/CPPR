@@ -30,7 +30,8 @@ class MaskedAutoencoderViT(nn.Module):
                  mlp_ratio=4., norm_layer=nn.LayerNorm, 
                  use_cls_token=True, slim_predictor=True, cls_predict_loss=False,
                  debug_mode=False,  num_groups=2, temperature=0.1,
-                 w_batchwise_loss=1., w_patchwise_loss=1., w_pred_loss=1., detach=False):
+                 coeff_ginvar=1., coeff_bvar=1., coeff_pvar=1., coeff_fcov=1., coeff_pcross=1., 
+                 coeff_var_thr=1., detach=False):
         super().__init__()
 
         # --------------------------------------------------------------------------
@@ -45,11 +46,12 @@ class MaskedAutoencoderViT(nn.Module):
         self.criterion = torch.nn.CrossEntropyLoss()
         self.detach = detach
 
-        self.coeff_ginvar =25.  # group invariance (equivalent to MSE for G=2)
-        self.coeff_bvar = 25.  # batchwise variance
-        self.coeff_pvar = 25.  # patchwise variance
-        self.coeff_fcov = 1.  # feature covariance
-        self.coeff_pcross = 1.  # feature X pos_embd cross-covariance
+        self.coeff_ginvar = coeff_ginvar  # group invariance (equivalent to MSE for G=2)
+        self.coeff_bvar = coeff_bvar  # batchwise variance
+        self.coeff_pvar = coeff_pvar  # patchwise variance
+        self.coeff_fcov = coeff_fcov  # feature covariance
+        self.coeff_pcross = coeff_pcross  # feature X pos_embd cross-covariance
+        self.coeff_var_thr = coeff_var_thr
         self.use_contextless = False
 
         # MAE encoder specifics
@@ -302,19 +304,20 @@ class MaskedAutoencoderViT(nn.Module):
 
         # batchwise variance loss
         std_batchwise = (preds.var(0) + 0.0001).sqrt()
-        loss_batchwise_var = F.relu(1 - std_batchwise).mean()
+        loss_batchwise_var = F.relu(self.coeff_var_thr - std_batchwise).mean()
 
         # patchwise variance loss
         std_patchwise = (preds.var(2) + 0.0001).sqrt()
-        loss_patchwise_var = F.relu(1 - std_patchwise).mean()       
+        loss_patchwise_var = F.relu(self.coeff_var_thr - std_patchwise).mean()       
 
         # featurewise covariance loss
         N = B * (G + self.use_contextless) * (P + C)
         preds_flat = preds.view(N, E)
         preds_flat = preds_flat - preds_flat.mean(0)
-        cov = (preds_flat.T @ preds_flat) / (N - 1)  # [E, E]
+        preds_flat = preds_flat / ((N - 1.) ** 0.5)  # numerical stability instead of dividing after
+        cov = (preds_flat.T @ preds_flat)  # [E, E]
         off_diag = cov.flatten()[:-1].view(E - 1, E + 1)[:, 1:].flatten()
-        loss_featurewise_cov = off_diag.pow(2).sum() / E
+        loss_featurewise_cov = off_diag.pow(2).sum() / (E ** 2 - E)
 
         # mask pos embds  (assume here self.use_contextless is False)
         N = B * G * P
@@ -337,7 +340,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         cross_cov_pos_enc = (preds_flat_no_cls.T @ enc_pos_embed) # [E, E]
         cross_cov_pos_pred = (preds_flat_no_cls.T @ pred_pos_embed) # [E, Ep]  Ep is embd size in predictor
-        loss_pos_cross_cov = 0.5 * (cross_cov_pos_enc.pow(2).sum() + cross_cov_pos_pred.pow(2).sum()) / E
+        loss_pos_cross_cov = 0.5 * (cross_cov_pos_enc.pow(2).sum() + cross_cov_pos_pred.pow(2).sum()) / (E ** 2)
 
         # combine all the losses
         loss = (self.coeff_ginvar * loss_groupwise_invar + 
@@ -413,7 +416,7 @@ class MaskedAutoencoderViT(nn.Module):
         # Evaluate linear probing
         if y is not None:
             loss_lin_prob = self.forward_eval_loss(reps_united[:, 0, :], y)
-            loss += loss_lin_prob / 10.
+            loss += loss_lin_prob
         else:
             loss_lin_prob = 0
             

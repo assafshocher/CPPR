@@ -116,9 +116,13 @@ def get_args_parser():
 
     # losses parameters
     parser.add_argument('--detach', action='store_true', help='for pred loss, detach reps?')
-    parser.add_argument('--w_pred_loss', type=float, default=1., help='pred loss weight')
-    parser.add_argument('--w_batchwise_loss', type=float, default=1., help='batchwise loss weight')
-    parser.add_argument('--w_patchwise_loss', type=float, default=1., help='patchwise loss weight')
+    parser.add_argument('--coeff_ginvar', type=float, default=1., help='group invariance (equivalent to MSE for G=2)')
+    parser.add_argument('--coeff_bvar', type=float, default=1., help='batchwise variance')
+    parser.add_argument('--coeff_pvar', type=float, default=1., help='patchwise variance')
+    parser.add_argument('--coeff_fcov', type=float, default=1., help='feature covariance')
+    parser.add_argument('--coeff_pcross', type=float, default=1., help='feature X pos_embd cross-covariance')
+    parser.add_argument('--coeff_var_thr', type=float, default=1., help='hinge loss variance thr')
+
 
     return parser
 
@@ -204,9 +208,12 @@ def main(args):
     # define the model
     model = models_cmae.__dict__[args.model](temperature=args.temperature,
                                              detach=args.detach,
-                                             w_pred_loss=args.w_pred_loss,
-                                             w_batchwise_loss=args.w_batchwise_loss,
-                                             w_patchwise_loss=args.w_patchwise_loss)
+                                             coeff_ginvar=args.coeff_ginvar,
+                                             coeff_bvar=args.coeff_bvar,
+                                             coeff_pvar=args.coeff_pvar,
+                                             coeff_fcov=args.coeff_fcov,
+                                             coeff_pcross=args.coeff_pcross,
+                                             coeff_var_thr=args.coeff_var_thr,)
 
     model.to(device)
 
