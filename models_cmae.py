@@ -332,13 +332,15 @@ class MaskedAutoencoderViT(nn.Module):
     def cross_cov(self, x, y, drop_diag):
         B, G, P, E = x.shape
         _, _, _, F = y.shape
-        x -= x.mean(2, keepdim=True)
-        y -= y.mean(2, keepdim=True)
+        x = x - x.mean(2, keepdim=True)
+        y = y - y.mean(2, keepdim=True)
         cov = torch.einsum('bgpe,bgpf->bgef', x, y)
-        cov = (cov / (P - 1)).pow(2) / B * G * E * (F - drop_diag)
+        cov = cov / (P - 1)
+        cov = torch.pow(cov, 2)
+        cov = cov / (B * G * E * (F - drop_diag))
         loss_featurewise_cov = cov.sum()
         if drop_diag:
-            loss_featurewise_cov -= torch.diagonal(cov, 2, 3).sum()
+            loss_featurewise_cov = loss_featurewise_cov - torch.diagonal(cov, 2, 3).sum()
         return loss_featurewise_cov
 
     def forward_eval_loss(self, h, y):
