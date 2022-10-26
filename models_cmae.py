@@ -40,9 +40,6 @@ class MaskedAutoencoderViT(nn.Module):
         self.cls_predict_loss = cls_predict_loss
         self.debug_mode = debug_mode
         self.temperature = temperature
-        self.w_batchwise_loss = w_batchwise_loss
-        self.w_patchwise_loss = w_patchwise_loss
-        self.w_pred_loss = w_pred_loss
         self.criterion = torch.nn.CrossEntropyLoss()
         self.detach = detach
 
@@ -289,6 +286,7 @@ class MaskedAutoencoderViT(nn.Module):
         B, G, C_plus_P, E = pred.shape
         C = (G - 1) * self.cls_predict_loss + self.use_cls_token
         P = C_plus_P - C
+        S = P // G
         L = mask.shape[-1]
 
         preds = pred
@@ -302,6 +300,10 @@ class MaskedAutoencoderViT(nn.Module):
         # groupwise invariance loss
         loss_groupwise_invar = preds.var(1).mean()  # if G==2 equivalent to MSE
 
+        # apply cov/inv only on existing patches
+        masked_mask = mask[mask.any(1)[:, None, :].expand(B, G, L)].view(B, G, P)
+        preds = preds[:, :, 1:][masked_mask].view(B, G, S, E)
+
         # batchwise variance loss
         std_batchwise = (preds.var(0) + 0.0001).sqrt()
         loss_batchwise_var = F.relu(self.coeff_var_thr - std_batchwise).mean()
@@ -311,36 +313,12 @@ class MaskedAutoencoderViT(nn.Module):
         loss_patchwise_var = F.relu(self.coeff_var_thr - std_patchwise).mean()       
 
         # featurewise covariance loss
-        N = B * (G + self.use_contextless) * (P + C)
-        preds_flat = preds.view(N, E)
-        preds_flat = preds_flat - preds_flat.mean(0)
-        preds_flat = preds_flat / ((N - 1.) ** 0.5)  # numerical stability instead of dividing after
-        cov = (preds_flat.T @ preds_flat)  # [E, E]
-        off_diag = cov.flatten()[:-1].view(E - 1, E + 1)[:, 1:].flatten()
-        loss_featurewise_cov = off_diag.pow(2).sum() / (E ** 2 - E)
+        loss_featurewise_cov = self.cross_cov(preds, preds, drop_diag=True)
 
         # mask pos embds  (assume here self.use_contextless is False)
-        N = B * G * P
-        global_mask = mask[0].bool().any(0)  # [L]
-        global_mask = torch.cat([torch.zeros(1, dtype=bool, device=pred.device), global_mask])  # [L+1] throw away cls token pos embd
-        enc_pos_embed = self.pos_embed[:, None, global_mask, :].repeat(B, G, 1, 1).view(N, E)
-        pred_pos_embed = self.decoder_pos_embed[:, None, global_mask, :].repeat(B, G, 1, 1).view(N, -1)  # -1 because it's predictor embd dim
-
-        # centering 
-        enc_pos_embed = enc_pos_embed - enc_pos_embed.mean(1, keepdim=True)
-        pred_pos_embed = pred_pos_embed - pred_pos_embed.mean(1, keepdim=True)
-
-        # create matrices
-        preds_flat_no_cls = preds[:, :, C:, :].reshape(N, E)
-        preds_flat_no_cls = preds_flat_no_cls - preds_flat.mean(0)
-
-        # scale to prevent inf, insterad of dividing after composing the matrices
-        s = (N - 1.) ** 0.5
-        preds_flat_no_cls, enc_pos_embed, pred_pos_embed = preds_flat_no_cls / s , enc_pos_embed / s, pred_pos_embed / s
-
-        cross_cov_pos_enc = (preds_flat_no_cls.T @ enc_pos_embed) # [E, E]
-        cross_cov_pos_pred = (preds_flat_no_cls.T @ pred_pos_embed) # [E, Ep]  Ep is embd size in predictor
-        loss_pos_cross_cov = 0.5 * (cross_cov_pos_enc.pow(2).sum() + cross_cov_pos_pred.pow(2).sum()) / (E ** 2)
+        enc_pos_embed = self.pos_embed[:, None, 1:].expand(B, G, L, E)[mask].view(B, G, S, E)
+        pred_pos_embed = self.decoder_pos_embed[:, None, 1:].expand(B, G, L, -1)[mask].view(B, G, S, -1)  # -1 because it's predictor embd dim
+        loss_pos_cross_cov = (self.cross_cov(preds, enc_pos_embed, drop_diag=False) + self.cross_cov(preds, pred_pos_embed, drop_diag=False))/2
 
         # combine all the losses
         loss = (self.coeff_ginvar * loss_groupwise_invar + 
@@ -351,6 +329,17 @@ class MaskedAutoencoderViT(nn.Module):
         
         return loss, loss_groupwise_invar, loss_batchwise_var, loss_patchwise_var, loss_featurewise_cov, loss_pos_cross_cov
 
+    def cross_cov(self, x, y, drop_diag):
+        B, G, P, E = x.shape
+        _, _, _, F = y.shape
+        x -= x.mean(2, keepdim=True)
+        y -= y.mean(2, keepdim=True)
+        cov = torch.einsum('bgpe,bgpf->bgef', x, y)
+        cov = (cov / (P - 1)).pow(2) / B * G * E * (F - drop_diag)
+        loss_featurewise_cov = cov.sum()
+        if drop_diag:
+            loss_featurewise_cov -= torch.diagonal(cov, 2, 3).sum()
+        return loss_featurewise_cov
 
     def forward_eval_loss(self, h, y):
         h = h.detach()
