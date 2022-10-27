@@ -85,14 +85,11 @@ class MaskedAutoencoderViT(nn.Module):
             self.decoder_norm = norm_layer(decoder_embed_dim)
             self.decoder_pred = nn.Linear(decoder_embed_dim, embed_dim, bias=True) # decoder to embedding
         # --------------------------------------------------------------------------
-        self.fc_for_cross_corr_reps = nn.Sequential(nn.Linear(embed_dim, embed_dim, bias=True),
-                                                    nn.GELU(), 
-                                                    nn.Linear(embed_dim, embed_dim, bias=True))
-
-        self.fc_for_cross_corr_embs = nn.Sequential(nn.Linear(embed_dim, embed_dim, bias=True),
-                                                    nn.GELU(),
-                                                    nn.Linear(embed_dim, embed_dim, bias=True),
-                                                    nn.GELU())
+        if self.use_contextless:
+            self.fc_for_cross_corr_embs = nn.Sequential(nn.Linear(embed_dim, embed_dim, bias=True),
+                                                        nn.GELU(),
+                                                        nn.Linear(embed_dim, embed_dim, bias=True),
+                                                        nn.GELU())
 
 
         self.fc_projector = torch.nn.Linear(embed_dim, 1000)
