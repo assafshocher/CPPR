@@ -39,15 +39,10 @@ def train_one_epoch(model: torch.nn.Module,
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
-        samples = samples.to(device, non_blocking=True).view(-1, 3, args.input_size, args.input_size)
+        samples = samples.to(device, non_blocking=True)
         with torch.cuda.amp.autocast():
-            (loss, 
-            loss_groupwise_invar, 
-            loss_batchwise_var, 
-            loss_patchwise_var, 
-            loss_featurewise_cov, 
-            loss_pos_cross_cov, 
-            loss_lin_prob) = model(samples, num_groups=args.num_groups, group_sz=args.group_sz, y=y)
+            loss_dict = model(samples, mask_ratio=args.mask_ratio, y=y)
+        loss = loss_dict['loss']
         loss_value = loss.item()
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
@@ -58,15 +53,9 @@ def train_one_epoch(model: torch.nn.Module,
         if (data_iter_step + 1) % accum_iter == 0:
             optimizer.zero_grad()
         torch.cuda.synchronize()
-        metric_logger.update(loss=loss_value)
-        metric_logger.update(loss_groupwise_invar=loss_groupwise_invar.item())
-        metric_logger.update(loss_batchwise_var=loss_batchwise_var.item())
-        metric_logger.update(loss_patchwise_var=loss_patchwise_var.item())
-        metric_logger.update(loss_featurewise_cov=loss_featurewise_cov.item())
-        metric_logger.update(loss_pos_cross_cov=loss_pos_cross_cov.item())
-        metric_logger.update(loss_lin_prob=loss_lin_prob.item())
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)
+        metric_logger.update(loss_dict)
         loss_value_reduce = misc.all_reduce_mean(loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             """ We use epoch_1000x as the x-axis in tensorboard.
@@ -80,4 +69,3 @@ def train_one_epoch(model: torch.nn.Module,
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
-
