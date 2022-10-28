@@ -258,6 +258,7 @@ def main(args):
 
         model.eval()
         stats = evaluate_ours(val_loader, model, device)
+        log_stats.update(stats)
 
         if args.output_dir and misc.is_main_process():
             if log_writer is not None:
@@ -265,7 +266,6 @@ def main(args):
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
 
-            log_stats.update(stats)
             if args.use_wandb:
                 wandb.log(log_stats)
 
