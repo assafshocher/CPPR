@@ -70,8 +70,7 @@ class MaskedAutoencoderViT(nn.Module):
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * in_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
-        self.fc_projector = torch.nn.Linear(embed_dim, 1000)
-        self.fc_projector = torch.nn.Sequential(torch.nn.BatchNorm1d(embed_dim, affine=False), self.fc_projector)
+        self.fc_projector = torch.nn.Sequential(torch.nn.BatchNorm1d(embed_dim, affine=False), torch.nn.Linear(embed_dim, 1000))
         self.cross_entropy = torch.nn.CrossEntropyLoss()
 
         self.initialize_weights()

@@ -154,23 +154,26 @@ def main(args):
                                        )
                                        )
 
-    kwargs = dict(
-        batch_size=args.batch_size // args.world_size,
-        num_workers=args.num_workers,
-        pin_memory=True,
+    num_tasks = misc.get_world_size()
+    global_rank = misc.get_rank()
+    sampler_train = torch.utils.data.DistributedSampler(
+        dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
     )
+    print("Sampler_train = %s" % str(sampler_train))
+    if len(val_dataset) % num_tasks != 0:
+        print('Warning: Enabling distributed evaluation with an eval dataset not divisible by process number. '
+              'This will slightly alter validation results as extra duplicate entries are added to achieve '
+              'equal num of samples per-process.')
+    sampler_val = torch.utils.data.DistributedSampler(
+        val_dataset, num_replicas=num_tasks, rank=global_rank, shuffle=True)  # shuffle=True to reduce monitor bias
 
-    val_loader = torch.utils.data.DataLoader(val_dataset, **kwargs)
-
-    if True:  # args.distributed:
-        num_tasks = misc.get_world_size()
-        global_rank = misc.get_rank()
-        sampler_train = torch.utils.data.DistributedSampler(
-            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-        )
-        print("Sampler_train = %s" % str(sampler_train))
-    else:
-        sampler_train = torch.utils.data.RandomSampler(dataset_train)
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset, sampler=sampler_val,
+        batch_size=args.batch_size,
+        num_workers=args.num_workers,
+        pin_memory=args.pin_mem,
+        drop_last=False
+    )
 
     log_writer = None
     if global_rank == 0 and args.log_dir is not None:
