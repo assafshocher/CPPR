@@ -258,7 +258,6 @@ def main(args):
 
         model.eval()
         stats = evaluate_ours(val_loader, model, device)
-        model.train()
 
         if args.output_dir and misc.is_main_process():
             if log_writer is not None:

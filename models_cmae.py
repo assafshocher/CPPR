@@ -279,9 +279,10 @@ class LossLog:
     def return_loss(self):
         loss_dict = {'loss': 0.}
         for name_val, coeff_val, loss_val in zip(self.loss_name_lst, self.loss_coeff_lst, self.loss_val_lst):
-            loss_dict[name_val + '_unscaled'] = loss_val
-            loss_dict[name_val] = loss_val * coeff_val
-            loss_dict['loss'] += loss_dict[name_val]
+            loss_dict[name_val + '_unscaled'] = float(loss_val.detach().item())
+            curr_loss = loss_val * coeff_val
+            loss_dict['loss'] += curr_loss
+            loss_dict[name_val] = float(curr_loss.detach().item())
         return loss_dict
 
 
