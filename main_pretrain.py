@@ -11,6 +11,8 @@
 import argparse
 import datetime
 import json
+from glob import glob
+
 import numpy as np
 import os
 import time
@@ -226,6 +228,12 @@ def main(args):
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
     loss_scaler = NativeScaler()
+
+    if args.resume == '':
+        fns = glob(os.path.join(args.output_dir, "checkpoint-*.pth"))
+        if len(fns) > 0:
+            fn = sorted(fns, key=lambda x: x.split('-')[1].split('.')[0])[-1]
+            args.resume = fn
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
