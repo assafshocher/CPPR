@@ -20,9 +20,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from data_transforms import TwoCropsTransform
-from util.misc import  accuracy, AverageMeter
-import timm
+from engine_finetune import evaluate_ours
 
 # assert timm.__version__ == "0.3.2"  # version check
 import timm.optim.optim_factory as optim_factory
@@ -51,10 +49,7 @@ def get_args_parser():
     parser.add_argument('--input_size', default=224, type=int,
                         help='images input size')
 
-    parser.add_argument('--num_groups', default=2, type=int,
-                        help='number of groups to split to.')
-
-    parser.add_argument('--group_sz', default=49, type=int,
+    parser.add_argument('--mask_ratio', default=0.75, type=float,
                     help='number of patches in each group.')
 
     parser.add_argument('--temperature', default=0.1, type=float,
@@ -116,14 +111,9 @@ def get_args_parser():
 
     # losses parameters
     parser.add_argument('--detach', action='store_true', help='for pred loss, detach reps?')
-    parser.add_argument('--coeff_ginvar', type=float, default=1., help='group invariance (equivalent to MSE for G=2)')
-    parser.add_argument('--coeff_bvar', type=float, default=1., help='batchwise variance')
-    parser.add_argument('--coeff_pvar', type=float, default=1., help='patchwise variance')
-    parser.add_argument('--coeff_fcov', type=float, default=1., help='feature covariance')
-    parser.add_argument('--coeff_pcross', type=float, default=1., help='feature X pos_embd cross-covariance')
-    parser.add_argument('--coeff_var_thr', type=float, default=1., help='hinge loss variance thr')
-
-
+    parser.add_argument('--loss_invar_coeff', type=float, default=25.)
+    parser.add_argument('--loss_var_coeff', type=float, default=25.)
+    parser.add_argument('--loss_cov_coeff', type=float, default=767.)
     return parser
 
 
@@ -149,7 +139,7 @@ def main(args):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
     dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'),
-                                         transform=transform_train))
+                                         transform=transform_train)
     print(dataset_train)
     val_dataset = datasets.ImageFolder(os.path.join(args.data_path, "val"),
                                        transforms.Compose(
@@ -206,14 +196,7 @@ def main(args):
     )
     
     # define the model
-    model = models_cmae.__dict__[args.model](temperature=args.temperature,
-                                             detach=args.detach,
-                                             coeff_ginvar=args.coeff_ginvar,
-                                             coeff_bvar=args.coeff_bvar,
-                                             coeff_pvar=args.coeff_pvar,
-                                             coeff_fcov=args.coeff_fcov,
-                                             coeff_pcross=args.coeff_pcross,
-                                             coeff_var_thr=args.coeff_var_thr,)
+    model = models_cmae.__dict__[args.model](args=args)
 
     model.to(device)
 
@@ -232,7 +215,7 @@ def main(args):
     print("effective batch size: %d" % eff_batch_size)
 
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module
     
     # following timm: set wd as 0 for bias and norm layers
@@ -262,38 +245,21 @@ def main(args):
         log_stats = {**{f'{k}': v for k, v in train_stats.items()},
                         'epoch': epoch,}
 
+        model.eval()
+        stats = evaluate_ours(val_loader, model, device)
+        model.train()
+
         if args.output_dir and misc.is_main_process():
             if log_writer is not None:
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
 
-            top1 = AverageMeter("Acc@1")
-            top5 = AverageMeter("Acc@5")
-
-            with torch.no_grad():
-                model.eval()
-                for images, target in val_loader:
-                    output = model(images.cuda(device, non_blocking=True), 1, 196, mode='eval')
-                    acc1, acc5 = accuracy(
-                        output, target.cuda(device, non_blocking=True), topk=(1, 5)
-                    )
-                    top1.update(acc1[0].item(), images.size(0))
-                    top5.update(acc5[0].item(), images.size(0))
-
-            stats = dict(
-                epoch=epoch,
-                acc1=top1.avg,
-                acc5=top5.avg,
-            )
-            print(stats)
             log_stats.update(stats)
             if args.use_wandb:
                 wandb.log(log_stats)
 
-            model.train()
-
-        if epoch > args.kill_after:
+        if epoch > args.kill_after or (epoch == 10 and log_stats['acc1'] < 2) or (epoch == 50 and log_stats['acc1'] < 10):
             break
 
     total_time = time.time() - start_time

@@ -28,16 +28,13 @@ class MaskedAutoencoderViT(nn.Module):
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm,
-                 coeff_ginvar=1., coeff_pvar=1., coeff_fcov=1.):
+                 args=None):
         super().__init__()
 
         # --------------------------------------------------------------------------
         
-        self.coeff_ginvar = coeff_ginvar  # group invariance (equivalent to MSE for G=2)        self.coeff_bvar = coeff_bvar  # batchwise variance
-        self.coeff_pvar = coeff_pvar  # patchwise variance
-        self.coeff_fcov = coeff_fcov  # feature covarianceself.coeff_pcross = coeff_pcross  # feature X pos_embd cross-covariance
-
         # MAE encoder specifics
+        self.args = args
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
         num_patches = self.patch_embed.num_patches
 
@@ -73,8 +70,6 @@ class MaskedAutoencoderViT(nn.Module):
         self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * in_chans, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
 
-        self.norm_pix_loss = norm_pix_loss
-
         self.fc_projector = torch.nn.Linear(embed_dim, 1000)
         self.fc_projector = torch.nn.Sequential(torch.nn.BatchNorm1d(embed_dim, affine=False), self.fc_projector)
         self.cross_entropy = torch.nn.CrossEntropyLoss()
@@ -107,8 +102,8 @@ class MaskedAutoencoderViT(nn.Module):
             torch.nn.init.xavier_uniform_(m.weight)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
-        elif isinstance(m, nn.LayerNorm) or isinstance(m, nn.BatchNorm):
-            if m.bias is not None::
+        elif isinstance(m, nn.LayerNorm) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+            if m.bias is not None:
                 nn.init.constant_(m.bias, 0)
                 nn.init.constant_(m.weight, 1.0)
 
@@ -221,7 +216,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         return x
 
-    def forward_loss(self, imgs, pred, mask, latent, y):
+    def forward_loss(self, imgs, pred, mask, latent, label):
         """
         imgs: [N, 3, H, W]
         pred: [N, L, p*p*3]
@@ -234,27 +229,26 @@ class MaskedAutoencoderViT(nn.Module):
         y = self.contextless_net(imgs)
         
         # invaraince loss
-        loss_invar = F.mse_loss(x, y, reduction='none')  # [B, L, E]
-        loss_invar = (loss_invar * mask.unsqueeze(-1)).sum() / mask.sum()
-        loss_log.add_loss('loss_invar', self.loss_invar_coeff, loss_invar)
+        loss_invar = F.mse_loss(x, y, reduction='none').mean(dim=-1)  # [B, L, E]
+        loss_invar = (loss_invar * mask).sum() / mask.sum()
+        loss_log.add_loss('loss_invar', self.args.loss_invar_coeff, loss_invar)
 
         # centering
-        x = x - x.mean(dim=1)
-        y = y - y.mean(dim=1)
+        x = x - x.mean(dim=1, keepdim=True)
+        y = y - y.mean(dim=1, keepdim=True)
 
         # variance loss
         std_y = torch.sqrt(y.var(dim=1) + 0.0001)
         loss_var = torch.mean(F.relu(1 - std_y))
-        loss_log.add_loss('loss_var', self.loss_var_coeff, loss_var)
+        loss_log.add_loss('loss_var', self.args.loss_var_coeff, loss_var)
 
         # cov loss
-        cov = torch.einsum('ble,blf->bef', y, y).div(L - 1)
-        cov = cov.pow_(2).div((B * E * (E - 1)))
-        loss_cov = cov.sum() - torch.diagonal(cov, 1, 2).sum()
-        loss_log.add_loss('loss_cov', self.loss_cov_coeff, loss_cov)
+        cov = torch.einsum('ble,blf->bef', y, y).div(L - 1).pow_(2)
+        loss_cov = (cov.sum() - torch.diagonal(cov, 1, 2).sum()).div(B * E * (E - 1))
+        loss_log.add_loss('loss_cov', self.args.loss_cov_coeff, loss_cov)
 
-        if y is not None:
-            loss_lin_prob = self.forward_eval_loss(latent[:, 0], y)
+        if label is not None:
+            loss_lin_prob = self.forward_eval_loss(latent[:, 0], label)
             loss_log.add_loss('loss_lin_prob', 1., loss_lin_prob)
 
         return loss_log.return_loss()

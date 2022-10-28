@@ -40,6 +40,7 @@ def train_one_epoch(model: torch.nn.Module,
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
         samples = samples.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)
         with torch.cuda.amp.autocast():
             loss_dict = model(samples, mask_ratio=args.mask_ratio, y=y)
         loss = loss_dict['loss']
@@ -55,7 +56,7 @@ def train_one_epoch(model: torch.nn.Module,
         torch.cuda.synchronize()
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)
-        metric_logger.update(loss_dict)
+        metric_logger.update(**loss_dict)
         loss_value_reduce = misc.all_reduce_mean(loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
             """ We use epoch_1000x as the x-axis in tensorboard.
