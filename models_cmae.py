@@ -16,6 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 
+from patch_resnet import PatchResNet
 from timm.models.vision_transformer import PatchEmbed, Block
 
 from util.pos_embed import get_2d_sincos_pos_embed
@@ -28,7 +29,7 @@ class MaskedAutoencoderViT(nn.Module):
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm,
-                 args=None):
+                 args=None, contextless_model='base'):
         super().__init__()
 
         # --------------------------------------------------------------------------
@@ -48,11 +49,15 @@ class MaskedAutoencoderViT(nn.Module):
         # --------------------------------------------------------------------------
         # --------------------------------------------------------------------------
         # contextless network
-        self.contextless_net = nn.Sequential(PatchEmbed(img_size, patch_size, in_chans, embed_dim),
-                                             nn.ReLU(),
-                                             nn.Linear(embed_dim, embed_dim, bias=True),
-                                             nn.ReLU(),
-                                             nn.Linear(embed_dim, embed_dim, bias=False))
+
+        if contextless_model=='base':
+            self.contextless_net = nn.Sequential(PatchEmbed(img_size, patch_size, in_chans, embed_dim),
+                                                nn.ReLU(),
+                                                nn.Linear(embed_dim, embed_dim, bias=True),
+                                                nn.ReLU(),
+                                                nn.Linear(embed_dim, embed_dim, bias=False))
+        elif contextless_model=='resnet':
+            self.contextless_net = PatchResNet(embed_dim, patch_size, img_size)
 
         # --------------------------------------------------------------------------
         # MAE decoder specifics

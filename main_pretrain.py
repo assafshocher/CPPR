@@ -57,6 +57,10 @@ def get_args_parser():
     parser.add_argument('--temperature', default=0.1, type=float,
                     help='temperature for softmax in InfoNCE.')
 
+    parser.add_argument('--contextless_model', default='base', type=str, help='base / resnet')
+
+                    
+
 
     parser.add_argument('--no_wandb', action='store_false', dest='use_wandb')
     parser.set_defaults(use_wandb=True)
@@ -201,7 +205,7 @@ def main(args):
     )
     
     # define the model
-    model = models_cmae.__dict__[args.model](args=args)
+    model = models_cmae.__dict__[args.model](args=args, contextless_model=args.contextless_model)
 
     model.to(device)
 
