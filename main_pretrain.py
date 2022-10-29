@@ -58,6 +58,7 @@ def get_args_parser():
                     help='temperature for softmax in InfoNCE.')
 
     parser.add_argument('--contextless_model', default='base', type=str, help='base / resnet')
+    parser.add_argument('--aug_suite', default='standard', type=str, help='standard / masking')
 
                     
 
@@ -139,11 +140,16 @@ def main(args):
     cudnn.benchmark = True
 
     # simple augmentation
-    transform_train = transforms.Compose([
-            transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+    if args.aug_suite == 'standard':
+        augs = [transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
+                transforms.RandomHorizontalFlip()]
+    elif args.aug_suite == 'masking':
+        augs = [transforms.Resize((args.input_size, args.input_size), interpolation=3)]
+    else:
+        raise ValueError("Wrong suite")
+    augs.extend([transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+
+    transform_train = transforms.Compose(augs)
     dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'),
                                          transform=transform_train)
     print(dataset_train)
