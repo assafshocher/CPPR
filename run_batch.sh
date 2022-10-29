@@ -6,7 +6,7 @@ JOB_DIR=/checkpoint/amirbar/video_mae/logs_dir/
 DATA_PATH=/datasets01/imagenet_full_size/061417
 KILL_AFTER=80
 partition=learnlab
-batch_size=256
+batch_size=224
 
 for BLR in 1.5e-5 1.5e-4
 do
