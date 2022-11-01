@@ -256,7 +256,7 @@ def main(args):
             data_loader_train.sampler.set_epoch(epoch)
         train_stats = train_one_epoch(
             model, data_loader_train,
-            optimizer, device, epoch, loss_scaler,
+            optimizer, device, epoch, loss_scaler, model_without_ddp=model_without_ddp,
             log_writer=log_writer,
             args=args
         )
