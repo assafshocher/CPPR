@@ -14,10 +14,8 @@ from functools import partial
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import rearrange
-
 from patch_resnet import PatchResNet
-from timm.models.vision_transformer import PatchEmbed, Block
+from vision_transformer import PatchEmbed, Block
 
 from util.pos_embed import get_2d_sincos_pos_embed
 
@@ -72,11 +70,15 @@ class MaskedAutoencoderViT(nn.Module):
             for i in range(decoder_depth)])
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2 * in_chans, bias=True) # decoder to patch
+        self.decoder_pred = nn.Linear(decoder_embed_dim, embed_dim, bias=True) # decoder to patch
         # --------------------------------------------------------------------------
-
-        self.fc_projector = torch.nn.Sequential(torch.nn.BatchNorm1d(embed_dim, affine=False), torch.nn.Linear(embed_dim, 1000))
-        self.cross_entropy = torch.nn.CrossEntropyLoss()
+        if self.args.linear_eval:
+            if self.args.linear_eval_bn:
+                bn = torch.nn.BatchNorm1d(embed_dim, affine=False)
+            else:
+                bn = torch.nn.Identity()
+            self.fc_projector = torch.nn.Sequential(bn, torch.nn.Linear(embed_dim, 1000))
+            self.cross_entropy = torch.nn.CrossEntropyLoss()
 
         self.initialize_weights()
 
