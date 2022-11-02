@@ -290,7 +290,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         if label is not None:
             loss_lin_prob = self.forward_eval_loss(latent[:, 0], label)
-            loss_log.add_loss('loss_lin_prob', 1., loss_lin_prob)
+            loss_log.add_loss('loss_lin_prob', 0.1, loss_lin_prob)
 
         return loss_log.return_loss()
 

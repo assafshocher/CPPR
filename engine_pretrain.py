@@ -46,6 +46,7 @@ def train_one_epoch(model: torch.nn.Module,
         loss = loss_dict['loss']
         loss_value = loss.item()
         if not math.isfinite(loss_value):
+            import pdb; pdb.set_trace()
             print("Loss is {}, stopping training".format(loss_value))
             misc.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,

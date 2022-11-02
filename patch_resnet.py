@@ -27,7 +27,7 @@ class PatchNorm(nn.Module):
         return x.reshape(A, C, P, P)
 
 class PatchResNet(nn.Module):
-    def __init__(self, out_chans, p_sz=16, input_sz=224, normtype='patch'):
+    def __init__(self, out_chans, p_sz=16, input_sz=224, normtype='batch'):
         super().__init__()
         self.out_chans = out_chans
         self.p_sz = p_sz
@@ -77,7 +77,7 @@ class PatchResNet(nn.Module):
         x = self.block2(x)
 
         x = self.avgpool(x)
-        x = torch.flatten(x, 1)
+        x = torch.flatten(x, 1)  # [B*h*h, C*P*P]
         x = self.fc(x)  # [B*h*h, out_chans]
 
         x = x.view(-1, self.num_patches, self.out_chans)
@@ -123,10 +123,6 @@ def conv(in_chans, out_chans=None, k_sz=3):
         bias=False,
         padding=k_sz//2
     )
-
-
-
-
 
 
 

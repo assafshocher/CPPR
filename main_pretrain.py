@@ -52,7 +52,10 @@ def get_args_parser():
                         help='images input size')
 
     parser.add_argument('--mask_ratio', default=0.75, type=float,
-                    help='number of patches in each group.')
+                    help='ratio of masked-out patches.')
+
+    parser.add_argument('--mask_ratio_eval', default=0.75, type=float,
+                    help='ratio of masked-out patches in online eval.')
 
     parser.add_argument('--temperature', default=0.1, type=float,
                     help='temperature for softmax in InfoNCE.')
@@ -189,20 +192,6 @@ def main(args):
         drop_last=False
     )
 
-    log_writer = None
-    if global_rank == 0 and args.log_dir is not None:
-        os.makedirs(args.log_dir, exist_ok=True)
-        if args.use_wandb:
-            try:
-                import wandb
-                wandb.init(
-                    project=args.project_name, entity="cppr", config=vars(args))
-                wandb.run.name = os.path.split(args.output_dir)[-1]
-                wandb.run.save()
-            except Exception as e:
-                print(f"Unable to setup wandb: {e}")
-        print(args)
-
 
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
@@ -251,6 +240,23 @@ def main(args):
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
+
+    log_writer = None
+    if global_rank == 0 and args.log_dir is not None:
+        os.makedirs(args.log_dir, exist_ok=True)
+        if args.use_wandb:
+            try:
+                import wandb
+                wandb.init(
+                    project=args.project_name, entity="cppr", config=vars(args))
+                wandb.watch(models=model_without_ddp, log="all", log_freq=20, log_graph=True)
+                wandb.run.name = os.path.split(args.output_dir)[-1]
+                wandb.run.save()
+            except Exception as e:
+                print(f"Unable to setup wandb: {e}")
+        print(args)
+
+
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
@@ -269,7 +275,7 @@ def main(args):
                         'epoch': epoch,}
 
         model.eval()
-        stats = evaluate_ours(val_loader, model, device)
+        stats = evaluate_ours(val_loader, model, device, args.mask_ratio_eval)
         log_stats.update(stats)
 
         if args.output_dir and misc.is_main_process():

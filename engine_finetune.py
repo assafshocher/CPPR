@@ -22,7 +22,7 @@ import util.misc as misc
 import util.lr_sched as lr_sched
 
 @torch.no_grad()
-def evaluate_ours(data_loader, model, device):
+def evaluate_ours(data_loader, model, device, mask_ratio):
     criterion = torch.nn.CrossEntropyLoss()
 
     metric_logger = misc.MetricLogger(delimiter="  ")
@@ -36,7 +36,7 @@ def evaluate_ours(data_loader, model, device):
 
         # compute output
         with torch.cuda.amp.autocast():
-            output = model(images, 0, y=None, mode='eval')
+            output = model(images, mask_ratio, y=None, mode='eval')
             loss = criterion(output, target)
 
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -119,6 +119,9 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
             epoch_1000x = int((data_iter_step / len(data_loader) + epoch) * 1000)
             log_writer.add_scalar('loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', max_lr, epoch_1000x)
+
+        if misc.is_main_process():
+            wandb.log()
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
