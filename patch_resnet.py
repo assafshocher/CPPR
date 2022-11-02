@@ -77,7 +77,7 @@ class PatchResNet(nn.Module):
         x = self.block2(x)
 
         x = self.avgpool(x)
-        x = torch.flatten(x, 1)
+        x = torch.flatten(x, 1)  # [B*h*h, C*P*P]
         x = self.fc(x)  # [B*h*h, out_chans]
 
         x = x.view(-1, self.num_patches, self.out_chans)
@@ -123,10 +123,6 @@ def conv(in_chans, out_chans=None, k_sz=3):
         bias=False,
         padding=k_sz//2
     )
-
-
-
-
 
 
 

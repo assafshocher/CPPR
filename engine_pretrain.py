@@ -46,8 +46,9 @@ def train_one_epoch(model: torch.nn.Module,
         loss = loss_dict['loss']
         loss_value = loss.item()
         if not math.isfinite(loss_value):
+            import pdb; pdb.set_trace()
             print("Loss is {}, stopping training".format(loss_value))
-            sys.exit(1)
+            # sys.exit(1)
         loss /= accum_iter
         loss_scaler(loss, optimizer, parameters=model.parameters(),
                     update_grad=(data_iter_step + 1) % accum_iter == 0)
