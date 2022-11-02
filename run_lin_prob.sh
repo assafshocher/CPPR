@@ -32,7 +32,7 @@ cd /home/assafsho/mae
 # script you'll only get updated every several lines printed.
 export PYTHONUNBUFFERED=1
 
-PRETRAIN_CHKPT='/home/assafsho/CPPR/baseline_mae/checkpoint-200.pth'
+PRETRAIN_CHKPT='/home/assafsho/CPPR/checkpoint-200_large_.pth'
 OUTPUT_DIR='/home/assafsho/mae/base_lin_prob'
 
 DATA_PATH='/home/assafsho/data/ILSVRC2012'
@@ -40,12 +40,13 @@ DATA_PATH='/home/assafsho/data/ILSVRC2012'
 # Do all the research.
 python -m torch.distributed.launch --nproc_per_node=8 main_linprobe.py \
         --batch_size 2048 \
-        --model vit_base_patch16 \
+        --model vit_large_patch16 \
         --finetune ${PRETRAIN_CHKPT} \
-        --epochs 90 \
-        --blr 0.1 \
+        --epochs 250 \
+        --blr 0.01 \
         --weight_decay 0.0 \
         --dist_eval --data_path ${DATA_PATH} --output_dir ${OUTPUT_DIR} \
         --cls_token \
+        --resume '/home/assafsho/mae/base_lin_prob/checkpoint-20.pth'
 # Print completion time.
 date

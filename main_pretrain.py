@@ -130,7 +130,6 @@ def get_args_parser():
 
 
 def main(args):
-    import pdb; pdb.set_trace()
     misc.init_distributed_mode(args)
 
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))

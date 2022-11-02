@@ -27,7 +27,7 @@ class PatchNorm(nn.Module):
         return x.reshape(A, C, P, P)
 
 class PatchResNet(nn.Module):
-    def __init__(self, out_chans, p_sz=16, input_sz=224, normtype='patch'):
+    def __init__(self, out_chans, p_sz=16, input_sz=224, normtype='batch'):
         super().__init__()
         self.out_chans = out_chans
         self.p_sz = p_sz
