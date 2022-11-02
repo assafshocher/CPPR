@@ -4,20 +4,20 @@ source ~/.bashrc
 
 JOB_DIR=/checkpoint/amirbar/video_mae/logs_dir/
 DATA_PATH=/datasets01/imagenet_full_size/061417
-KILL_AFTER=200
+KILL_AFTER=800
 COUNTER=0
 partition=devlab
 batch_size=224
 
-for BLR in 1.5e-4
+for BLR in 1e-4
 do
   for MASK_RATIO in 0.75
   do
     for loss_invar_coeff in 25
     do
-      for loss_var_coeff in 25
+      for loss_var_coeff in 100
       do
-        for loss_cov_coeff in 767
+        for loss_cov_coeff in 383
         do
           if ((${COUNTER} > 3)); then
             partition=devlab

@@ -21,9 +21,9 @@ class PatchNorm(nn.Module):
         L = self.num_patches
         B = A // L
         x = x.reshape(B, L, C, P, P)
-        x = torch.einsum('BLCPQ->BCLPQ', x)
+        x = torch.einsum('blcpq->bclpq', x)
         x = self.norm(x)
-        x = torch.einsum('BCLPQ->BLCPQ', x)
+        x = torch.einsum('bclpq->blcpq', x)
         return x.reshape(A, C, P, P)
 
 class PatchResNet(nn.Module):

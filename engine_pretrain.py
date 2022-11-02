@@ -19,7 +19,7 @@ import util.lr_sched as lr_sched
 
 def train_one_epoch(model: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, loss_scaler,
+                    device: torch.device, epoch: int, loss_scaler, model_without_ddp=None,
                     log_writer=None,
                     args=None):
     model.train(True)
@@ -48,7 +48,10 @@ def train_one_epoch(model: torch.nn.Module,
         if not math.isfinite(loss_value):
             import pdb; pdb.set_trace()
             print("Loss is {}, stopping training".format(loss_value))
-            # sys.exit(1)
+            misc.save_model(
+                args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                loss_scaler=loss_scaler, epoch=epoch)
+            sys.exit(1)
         loss /= accum_iter
         loss_scaler(loss, optimizer, parameters=model.parameters(),
                     update_grad=(data_iter_step + 1) % accum_iter == 0)

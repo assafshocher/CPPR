@@ -24,7 +24,7 @@ do
           else
             partition=devlab
           fi
-          OUTPUT_DIR="CONTEXTLESS_blr${BLR}_mr${MASK_RATIO}_invar${loss_invar_coeff}_var${loss_var_coeff}_cov${loss_cov_coeff}_batchsize_${batch_size}"
+          OUTPUT_DIR="CONTEXTLESS_blr${BLR}_mr${MASK_RATIO}_invar${loss_invar_coeff}_var${loss_var_coeff}_cov${loss_cov_coeff}_batchsize_${batch_size}_basenorm"
           python submitit_pretrain.py \
                   --job_dir ${JOB_DIR}/${OUTPUT_DIR} \
                   --output_dir ${JOB_DIR}/${OUTPUT_DIR}  \
@@ -38,6 +38,7 @@ do
                   --epochs 1600 \
                   --blr ${BLR} \
                   --mask_ratio ${MASK_RATIO} \
+                  --contextless_model base_norm \
                   --loss_invar_coeff ${loss_invar_coeff} \
                   --loss_var_coeff ${loss_var_coeff} \
                   --loss_cov_coeff ${loss_cov_coeff} \

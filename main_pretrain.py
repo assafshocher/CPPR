@@ -61,6 +61,7 @@ def get_args_parser():
                     help='temperature for softmax in InfoNCE.')
 
     parser.add_argument('--contextless_model', default='base', type=str, help='base / resnet')
+    parser.add_argument('--aug_suite', default='standard', type=str, help='standard / masking')
 
                     
 
@@ -97,6 +98,8 @@ def get_args_parser():
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
+    parser.add_argument('--linear_eval', default=1, type=int)
+    parser.add_argument('--linear_eval_bn', default=1, type=int)
     parser.add_argument('--resume', default='',
                         help='resume from checkpoint')
 
@@ -143,11 +146,16 @@ def main(args):
     cudnn.benchmark = True
 
     # simple augmentation
-    transform_train = transforms.Compose([
-            transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+    if args.aug_suite == 'standard':
+        augs = [transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
+                transforms.RandomHorizontalFlip()]
+    elif args.aug_suite == 'masking':
+        augs = [transforms.Resize((args.input_size, args.input_size), interpolation=3)]
+    else:
+        raise ValueError("Wrong suite")
+    augs.extend([transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+
+    transform_train = transforms.Compose(augs)
     dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'),
                                          transform=transform_train)
     print(dataset_train)
@@ -255,7 +263,7 @@ def main(args):
             data_loader_train.sampler.set_epoch(epoch)
         train_stats = train_one_epoch(
             model, data_loader_train,
-            optimizer, device, epoch, loss_scaler,
+            optimizer, device, epoch, loss_scaler, model_without_ddp=model_without_ddp,
             log_writer=log_writer,
             args=args
         )
