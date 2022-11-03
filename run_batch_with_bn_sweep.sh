@@ -14,7 +14,7 @@ do
   do
     for loss_invar_coeff in 25
     do
-      for loss_var_coeff in 10 25 50 100
+      for loss_var_coeff in 25
       do
         for loss_cov_coeff in 383 767 1534
         do
