@@ -37,7 +37,7 @@ class ContextLessModel(nn.Module):
     def forward(self, x):
         x = self.patch_emb(x)
         B, P, L = x.shape
-        x = x.flatten(0,1)
+        x = x.flatten(0, 1)
         if self.add_bn:
             x = self.bn1(x)
         x = self.relu(x)
@@ -46,6 +46,55 @@ class ContextLessModel(nn.Module):
             x = self.bn2(x)
         x = self.relu(x)
         return self.linear2(x).view(B, P, L)
+
+
+class ContextLessModelWrapper(nn.Module):
+    def __init__(self, arch, img_size, patch_size, in_chans):
+        super().__init__()
+        layers_spec = list(map(int, arch.split("-")))
+        self.relu = torch.nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=2, stride=2, padding=0)
+        self.bn1 = nn.BatchNorm2d(64)
+
+        self.conv2 = nn.Conv2d(64, 128, kernel_size=2, stride=2, padding=0)
+        self.bn2 = nn.BatchNorm2d(128)
+
+        self.conv3 = nn.Conv2d(128, 256, kernel_size=2, stride=2, padding=0)
+        self.bn3 = nn.BatchNorm2d(256)
+
+        self.conv4 = nn.Conv2d(256, layers_spec[0], kernel_size=2, stride=2, padding=0)
+        self.bn4 = nn.BatchNorm2d(layers_spec[0])
+
+        self.projector = Projector(layers_spec, 'relu')
+        self.num_patches = img_size // patch_size
+
+    def forward(self, x):
+        B, _, _, _ = x.shape
+        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.relu(self.bn2(self.conv2(x)))
+        x = self.relu(self.bn3(self.conv3(x)))
+        x = self.relu(self.bn4(self.conv4(x)))
+        x = x.flatten(2).transpose(1, 2).flatten(0, 1)
+        x = self.projector(x)
+        return x.view(B, self.num_patches*self.num_patches, x.shape[-1])
+
+
+def Projector(f, activation):
+    layers = []
+
+    for i in range(len(f) - 2):
+        layers.append(nn.Linear(f[i], f[i + 1]))
+        layers.append(nn.BatchNorm1d(f[i + 1]))
+        if activation == 'relu':
+            layers.append(nn.ReLU(True))
+        elif activation == 'leaky_relu':
+            layers.append(nn.LeakyReLU(True))
+        elif activation == 'none':
+            pass
+        else:
+            raise ValueError()
+    layers.append(nn.Linear(f[-2], f[-1], bias=False))
+    return nn.Sequential(*layers)
 
 
 class MaskedAutoencoderViT(nn.Module):
@@ -77,16 +126,20 @@ class MaskedAutoencoderViT(nn.Module):
         # --------------------------------------------------------------------------
         # --------------------------------------------------------------------------
         # contextless network
-
-        if contextless_model == 'base': # todo: change to ContextLessModel, here for backward compatability of resuming old experiments
+        decoder_output_dim = embed_dim
+        if contextless_model == 'base':  # todo: change to ContextLessModel, here for backward compatability of resuming old experiments
             self.contextless_net = nn.Sequential(PatchEmbed(img_size, patch_size, in_chans, embed_dim),
-                                                nn.ReLU(),
-                                                nn.Linear(embed_dim, embed_dim, bias=True),
-                                                nn.ReLU(),
-                                                nn.Linear(embed_dim, embed_dim, bias=False))
+                                                 nn.ReLU(),
+                                                 nn.Linear(embed_dim, embed_dim, bias=True),
+                                                 nn.ReLU(),
+                                                 nn.Linear(embed_dim, embed_dim, bias=False))
         elif contextless_model == 'base_norm':
             self.contextless_net = ContextLessModel(add_bn=True, img_size=img_size, patch_size=patch_size,
                                                     in_chans=in_chans, embed_dim=embed_dim)
+        elif contextless_model == 'custom_base_norm':
+            self.contextless_net = ContextLessModelWrapper(args.contextless_model_projector_arch, img_size, patch_size,
+                                                           in_chans)
+            decoder_output_dim = int(args.contextless_model_projector_arch.split('-')[-1])
         elif contextless_model == 'resnet':
             self.contextless_net = PatchResNet(embed_dim, patch_size, img_size)
         elif contextless_model == 'vit':
@@ -106,7 +159,7 @@ class MaskedAutoencoderViT(nn.Module):
             for i in range(decoder_depth)])
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim, embed_dim, bias=True)  # decoder to patch
+        self.decoder_pred = nn.Linear(decoder_embed_dim, decoder_output_dim, bias=True)  # decoder to patch
         # --------------------------------------------------------------------------
         if self.args.linear_eval:
             if self.args.linear_eval_bn:

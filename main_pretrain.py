@@ -61,7 +61,9 @@ def get_args_parser():
                     help='temperature for softmax in InfoNCE.')
 
     parser.add_argument('--contextless_model', default='base', type=str, help='base / resnet')
+    parser.add_argument('--contextless_model_projector_arch', type=str)
     parser.add_argument('--aug_suite', default='standard', type=str, help='standard / masking')
+    parser.add_argument('--wandb_log', default=None, type=str, help='all / None / gradients')
 
                     
 
@@ -221,6 +223,7 @@ def main(args):
     print("effective batch size: %d" % eff_batch_size)
 
     if args.distributed:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module
     
@@ -249,7 +252,8 @@ def main(args):
                 import wandb
                 wandb.init(
                     project=args.project_name, entity="cppr", config=vars(args))
-                wandb.watch(models=model_without_ddp, log="all", log_freq=20, log_graph=True)
+                if args.wandb_log is not None:
+                    wandb.watch(models=model_without_ddp, log=args.wandb_log, log_freq=100, log_graph=True)
                 wandb.run.name = os.path.split(args.output_dir)[-1]
                 wandb.run.save()
             except Exception as e:
