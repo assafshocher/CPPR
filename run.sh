@@ -11,9 +11,9 @@ mkdir ${JOB_DIR}/${OUTPUT_DIR}
 DATA_PATH='/home/assafsho/data/ILSVRC2012'
 TIME=$(date +%s%3N)
 KILL_AFTER=8000
-batch_size=224
+batch_size=512
 
-for contextless_model in 'base_norm'
+for contextless_model in 'resnet'
 do
   for BLR in 1.5e-4
   do
@@ -23,7 +23,7 @@ do
       do
         for loss_var_coeff in 100
         do
-          for loss_cov_coeff in 383
+          for loss_cov_coeff in 767
           do
             OUTPUT_DIR="masked_eval_CONTEXTLESS_${contextless_model}_blr${BLR}_mr${MASK_RATIO}_invar${loss_invar_coeff}_var${loss_var_coeff}_cov${loss_cov_coeff}_batchsize_${batch_size}"
             python -m torch.distributed.launch --nproc_per_node=8 main_pretrain.py \

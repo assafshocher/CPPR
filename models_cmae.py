@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from patch_resnet import PatchResNet
+from pixel_vit import PixelViT
 from vision_transformer import PatchEmbed, Block
 
 from util.pos_embed import get_2d_sincos_pos_embed
@@ -88,6 +89,8 @@ class MaskedAutoencoderViT(nn.Module):
                                                     in_chans=in_chans, embed_dim=embed_dim)
         elif contextless_model == 'resnet':
             self.contextless_net = PatchResNet(embed_dim, patch_size, img_size)
+        elif contextless_model == 'vit':
+            self.contextless_net = PixelViT(out_chans=embed_dim)
 
         # --------------------------------------------------------------------------
         # MAE decoder specifics
@@ -290,7 +293,7 @@ class MaskedAutoencoderViT(nn.Module):
 
         if label is not None:
             loss_lin_prob = self.forward_eval_loss(latent[:, 0], label)
-            loss_log.add_loss('loss_lin_prob', 0.1, loss_lin_prob)
+            loss_log.add_loss('loss_lin_prob', 1., loss_lin_prob)
 
         return loss_log.return_loss()
 

@@ -25,7 +25,7 @@ import torchvision.datasets as datasets
 
 import timm
 
-assert timm.__version__ == "0.3.2" # version check
+# assert timm.__version__ == "0.3.2" # version check
 from timm.models.layers import trunc_normal_
 
 import util.misc as misc
@@ -203,10 +203,7 @@ def main(args):
                 del checkpoint_model[k]
 
         # interpolate position embedding
-        # interpolate_pos_embed(model, checkpoint_model)
-        pos_embed = checkpoint_model['pos_embed'] 
-        zero = torch.zeros(1, 1, pos_embed.shape[-1], device=pos_embed.device)
-        checkpoint_model['pos_embed'] = torch.cat([zero, pos_embed], 1)
+        interpolate_pos_embed(model, checkpoint_model)
         
 
         # load pre-trained model
