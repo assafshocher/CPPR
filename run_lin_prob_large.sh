@@ -5,11 +5,11 @@ source ~/.bashrc
 JOB_DIR=/checkpoint/amirbar/video_mae/logs_dir
 DATA_PATH=/datasets01/imagenet_full_size/061417
 #MODEL_DIR=CONTEXTLESS_blr1.5e-4_mr0.75_invar25_var25_cov767_batchsize_64_large_8nodes
-MODEL_DIR=CONTEXTLESS_blr1.5e-4_mr0.75_invar25_var25_cov383_batchsize_64_basenorm_large_8nodes
-#MODEL_DIR=CONTEXTLESS_blr6.5625e-05_mr0.75_invar25_var25_cov383_batchsize_64_basenorm_large_8nodes
+#MODEL_DIR=CONTEXTLESS_blr1.5e-4_mr0.75_invar25_var25_cov383_batchsize_64_basenorm_large_8nodes
+MODEL_DIR=CONTEXTLESS_blr6.5625e-05_mr0.75_invar25_var25_cov383_batchsize_64_basenorm_large_8nodes
 COUNTER=0
 #for fn in checkpoint-100.pth checkpoint-200.pth
-for fn in checkpoint-200.pth
+for fn in checkpoint-400.pth
 do
   if ((${COUNTER} > 1)); then
     partition=learnlab

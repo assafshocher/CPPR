@@ -7,18 +7,18 @@ DATA_PATH=/datasets01/imagenet_full_size/061417
 KILL_AFTER=200
 COUNTER=0
 batch_size=224
-partition=devlab
+partition=learnlab
 for BLR in 1.5e-4
 do
   for MASK_RATIO in 0.75
   do
     for loss_invar_coeff in 25
     do
-      for loss_var_coeff in 25
+      for loss_var_coeff in 25 50
       do
-        for loss_cov_coeff in 383
+        for loss_cov_coeff in 383 767 1534
         do
-          for contextless_model_projector_arch in 768-768-768
+          for contextless_model_projector_arch in 256-256-768
           do
             OUTPUT_DIR="CONTEXTLESS_blr${BLR}_mr${MASK_RATIO}_invar${loss_invar_coeff}_var${loss_var_coeff}_cov${loss_cov_coeff}_batchsize_${batch_size}_custombasenorm_${contextless_model_projector_arch}"
             python submitit_pretrain.py \
