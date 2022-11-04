@@ -127,6 +127,7 @@ def get_args_parser():
     parser.add_argument('--detach', action='store_true', help='for pred loss, detach reps?')
     parser.add_argument('--loss_invar_coeff', type=float, default=25.)
     parser.add_argument('--loss_var_coeff', type=float, default=25.)
+    parser.add_argument('--batch_patch_ratio', type=float, default=1.)
     parser.add_argument('--loss_cov_coeff', type=float, default=767.)
     parser.add_argument('--use_batch_stats', action='store_true', help='use batchwsie cov and var or only patchwise?')
     return parser
@@ -134,7 +135,6 @@ def get_args_parser():
 
 def main(args):
     misc.init_distributed_mode(args)
-
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
     print("{}".format(args).replace(', ', ',\n'))
 
