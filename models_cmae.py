@@ -105,7 +105,7 @@ class MaskedAutoencoderViT(nn.Module):
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm,
-                 args=None, contextless_model='base'):
+                 args=None, contextless_model='base', use_batch_stats=False):
         super().__init__()
 
         # --------------------------------------------------------------------------
@@ -330,19 +330,29 @@ class MaskedAutoencoderViT(nn.Module):
         loss_invar = (loss_invar * mask).sum() / mask.sum()
         loss_log.add_loss('loss_invar', self.args.loss_invar_coeff, loss_invar)
 
-        # centering
-        x = x - x.mean(dim=1, keepdim=True)
-        y = y - y.mean(dim=1, keepdim=True)
-
-        # variance loss
+        # patchwise variance loss
         std_y = torch.sqrt(y.var(dim=1) + 0.0001)
-        loss_var = torch.mean(F.relu(1 - std_y))
-        loss_log.add_loss('loss_var', self.args.loss_var_coeff, loss_var)
+        loss_var_p = torch.mean(F.relu(1 - std_y))
+        loss_log.add_loss('loss_var_p', self.args.loss_var_coeff, loss_var_p)
 
-        # cov loss
-        cov = torch.einsum('ble,blf->bef', y, y).div(L - 1).pow_(2)
-        loss_cov = (cov.sum() - torch.diagonal(cov, 1, 2).sum()).div(B * E * (E - 1))
-        loss_log.add_loss('loss_cov', self.args.loss_cov_coeff, loss_cov)
+        # batchwise variance loss
+        if self.args.use_batch_stats:
+            std_y = torch.sqrt(y.var(dim=0) + 0.0001)
+            loss_var_b = torch.mean(F.relu(1 - std_y))
+            loss_log.add_loss('loss_var_b', self.args.loss_var_coeff, loss_var_b)
+
+        # patchwise cov loss
+        y_centered = y - y.mean(dim=1, keepdim=True)
+        cov = torch.einsum('ble,blf->bef', y_centered, y_centered).div(L - 1).pow_(2)
+        loss_cov_p = (cov.sum() - torch.diagonal(cov, 1, 2).sum()).div(B * E * (E - 1))
+        loss_log.add_loss('loss_cov_p', self.args.loss_cov_coeff, loss_cov_p)
+
+        # batchwise cov loss
+        if self.args.use_batch_stats:
+            y_centered = y - y.mean(dim=0, keepdim=True)
+            cov = torch.einsum('ble,blf->lef', y_centered, y_centered).div(B - 1).pow_(2)
+            loss_cov_b = (cov.sum() - torch.diagonal(cov, 1, 2).sum()).div(L * E * (E - 1))
+            loss_log.add_loss('loss_cov_b', self.args.loss_cov_coeff, loss_cov_b)
 
         if label is not None:
             loss_lin_prob = self.forward_eval_loss(latent[:, 0], label)
