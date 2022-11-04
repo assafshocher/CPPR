@@ -11,7 +11,7 @@ mkdir ${JOB_DIR}/${OUTPUT_DIR}
 DATA_PATH='/home/assafsho/data/ILSVRC2012'
 TIME=$(date +%s%3N)
 KILL_AFTER=8000
-batch_size=224
+batch_size=512
 
 for contextless_model in 'base_norm'
 do
@@ -21,7 +21,7 @@ do
     do
       for loss_invar_coeff in 25
       do
-        for loss_var_coeff in 100
+        for loss_var_coeff in 25
         do
           for loss_cov_coeff in 383
           do
@@ -34,6 +34,7 @@ do
                     --contextless_model ${contextless_model} \
                     --save_ckpt_freq 5 \
                     --input_size 224 \
+                    --use_batch_stats\
                     --warmup_epochs 40 \
                     --epochs 1600 \
                     --blr ${BLR} \

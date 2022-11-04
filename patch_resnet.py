@@ -4,13 +4,13 @@ import torch.nn.functional as F
 
 
 class PatchNorm(nn.Module):
-    def __init__(self, num_features=None, num_patches=None, p_sz=None, batch_or_patch='patch'):
+    def __init__(self, num_features=None, num_patches=None, p_sz=None, batch_or_patch=None):
         super().__init__()
         self.batch_or_patch = batch_or_patch
         if batch_or_patch == 'patch':
             self.norm = nn.LayerNorm([num_patches, p_sz, p_sz])
             self.num_patches = num_patches
-        else:
+        elif batch_or_patch == 'batch':
             self.norm = nn.BatchNorm2d(num_features)
 
     def forward(self, x):

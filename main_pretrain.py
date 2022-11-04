@@ -128,6 +128,7 @@ def get_args_parser():
     parser.add_argument('--loss_invar_coeff', type=float, default=25.)
     parser.add_argument('--loss_var_coeff', type=float, default=25.)
     parser.add_argument('--loss_cov_coeff', type=float, default=767.)
+    parser.add_argument('--use_batch_stats', action='store_true', help='use batchwsie cov and var or only patchwise?')
     return parser
 
 
