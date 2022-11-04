@@ -24,10 +24,6 @@ import torchvision.datasets as datasets
 
 import timm
 
-<<<<<<< HEAD
-# assert timm.__version__ == "0.3.2" # version check
-=======
->>>>>>> 3477675e3fbcb41c2833107d86601def51646678
 from timm.models.layers import trunc_normal_
 
 import util.misc as misc

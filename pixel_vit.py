@@ -11,7 +11,7 @@ from util.pos_embed import get_2d_sincos_pos_embed
 class PixelViT(nn.Module):
     def __init__(self, img_size=16, big_patch_size=16, patch_size=2, in_chans=3,
                  embed_dim=256, depth=4, num_heads=4,
-                 mlp_ratio=2., norm_layer=nn.LayerNorm, out_chans):
+                 mlp_ratio=2., norm_layer=nn.LayerNorm, out_chans=768):
         super().__init__()
 
         self.out_chans = out_chans
