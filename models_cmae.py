@@ -22,11 +22,10 @@ from util.pos_embed import get_2d_sincos_pos_embed
 
 
 class ContextLessModelWrapperV2(nn.Module):
-    def __init__(self, arch, backbone, img_size, patch_size):
+    def __init__(self, backbone, projector, img_size, patch_size):
         super().__init__()
         self.backbone = backbone
-        layers_spec = list(map(int, arch.split("-")))
-        self.projector = Projector(layers_spec, 'relu')
+        self.projector = projector
         self.num_patches = img_size // patch_size
 
     def forward(self, x):
@@ -63,6 +62,8 @@ def Projector(f, activation, use_bn=True):
             layers.append(nn.ReLU(True))
         elif activation == 'leaky_relu':
             layers.append(nn.LeakyReLU(True))
+        elif activation == 'gelu':
+            layers.append(nn.GELU())
         elif activation == 'none':
             pass
         else:
@@ -100,40 +101,26 @@ class MaskedAutoencoderViT(nn.Module):
         # --------------------------------------------------------------------------
         # --------------------------------------------------------------------------
         # contextless network
-        decoder_output_dim = int(args.contextless_model_projector_arch.split('-')[-1])
-        if contextless_model == 'base':
-            backbone = nn.Sequential(PatchEmbed(img_size, patch_size, in_chans, embed_dim),
-                                     torch.nn.Flatten(0, 1),
-                                     nn.ReLU(inplace=True))
-            self.contextless_net = ContextLessModelWrapperV2('768-768-768', backbone, img_size,
-                                                             patch_size)
-        elif contextless_model == 'base_norm':
-            backbone = nn.Sequential(PatchEmbed(img_size, patch_size, in_chans, embed_dim),
-                                     torch.nn.Flatten(0, 1),
-                                     nn.BatchNorm1d(embed_dim),
-                                     nn.ReLU(inplace=True))
-            self.contextless_net = ContextLessModelWrapperV2('768-768-768', backbone, img_size,
-                                                             patch_size)
-        elif contextless_model == 'custom_base_norm':
+        layers_spec = list(map(int, args.contextless_model_projector_arch.split("-")))
+        decoder_output_dim = layers_spec[-1]
+        if contextless_model == 'custom_base_norm':
             backbone = torch.nn.Sequential(PatchEmbed(img_size, patch_size, in_chans, embed_dim),
                                            torch.nn.Flatten(0, 1),
                                            nn.BatchNorm1d(embed_dim),
                                            torch.nn.ReLU(inplace=True))
-            self.contextless_net = ContextLessModelWrapperV2(args.contextless_model_projector_arch, backbone, img_size,
-                                                             patch_size)
-
+            projector = Projector(layers_spec, 'relu')
+            self.contextless_net = ContextLessModelWrapperV2(backbone, projector, img_size, patch_size)
         elif contextless_model == 'resnet':
             self.contextless_net = PatchResNet(embed_dim, patch_size, img_size)
         elif contextless_model == 'vit':
             decoder_input_dim = int(args.contextless_model_projector_arch.split('-')[0])
             backbone = torch.nn.Sequential(PixelViT(img_size=img_size, embed_dim=decoder_input_dim), torch.nn.Flatten(0, 1))
-            self.contextless_net = ContextLessModelWrapperV2(args.contextless_model_projector_arch, backbone, img_size,
-                                                             patch_size)
-
+            projector = Projector(layers_spec, 'gelu')
+            self.contextless_net = ContextLessModelWrapperV2(backbone, projector, img_size, patch_size)
         elif contextless_model == 'resnet18':
             backbone = torch.nn.Sequential(resnet18(pretrained=False, strides=[1, 2, 2, 1]), FlattenTranspose())
-            self.contextless_net = ContextLessModelWrapperV2(args.contextless_model_projector_arch, backbone, img_size,
-                                                             patch_size)
+            projector = Projector(layers_spec, 'relu')
+            self.contextless_net = ContextLessModelWrapperV2(backbone, projector, img_size, patch_size)
         # --------------------------------------------------------------------------
         # MAE decoder specifics
         self.decoder_embed = nn.Linear(embed_dim, decoder_embed_dim, bias=True)

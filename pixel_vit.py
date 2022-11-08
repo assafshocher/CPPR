@@ -9,9 +9,9 @@ from vision_transformer import PatchEmbed, Block
 from util.pos_embed import get_2d_sincos_pos_embed
 
 class PixelViT(nn.Module):
-    def __init__(self, img_size=16, big_patch_size=16, patch_size=2, in_chans=3,
-                 embed_dim=256, depth=4, num_heads=4,
-                 mlp_ratio=2., norm_layer=nn.LayerNorm):
+    def __init__(self, img_size=16, big_patch_size=16, patch_size=4, in_chans=3,
+                 embed_dim=96, depth=3, num_heads=4,
+                 mlp_ratio=1., norm_layer=nn.LayerNorm):
         super().__init__()
 
         self.num_big_patches = (img_size // big_patch_size) ** 2
