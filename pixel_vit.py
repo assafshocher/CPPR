@@ -11,14 +11,13 @@ from util.pos_embed import get_2d_sincos_pos_embed
 class PixelViT(nn.Module):
     def __init__(self, img_size=16, big_patch_size=16, patch_size=2, in_chans=3,
                  embed_dim=256, depth=4, num_heads=4,
-                 mlp_ratio=2., norm_layer=nn.LayerNorm, out_chans=768):
+                 mlp_ratio=2., norm_layer=nn.LayerNorm):
         super().__init__()
 
-        self.out_chans = out_chans
         self.num_big_patches = (img_size // big_patch_size) ** 2
         self.p_sz = big_patch_size
 
-        self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
+        self.patch_embed = PatchEmbed(big_patch_size, patch_size, in_chans, embed_dim)
         num_patches = self.patch_embed.num_patches
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)
@@ -28,9 +27,6 @@ class PixelViT(nn.Module):
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
  
-        self.final_linear = nn.Linear(embed_dim, out_chans, bias=True)  # decoder to patch
-       
-
     def initialize_weights(self):
         # initialization
         # initialize (and freeze) pos_embed by sin-cos embedding
@@ -91,8 +87,4 @@ class PixelViT(nn.Module):
         for blk in self.blocks:
             x = blk(x)
         x = self.norm(x)
-
-        # final projection from cls token
-        x = self.final_linear(x[:, 0, :])
-
-        return x.view(b_sz, self.num_big_patches, self.out_chans)
+        return x[:, 0].view(b_sz, self.num_big_patches, x.shape[-1])
