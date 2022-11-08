@@ -9,16 +9,16 @@ from vision_transformer import PatchEmbed, Block
 from util.pos_embed import get_2d_sincos_pos_embed
 
 class PixelViT(nn.Module):
-    def __init__(self, img_size=16, big_patch_size=16, patch_size=2, in_chans=3,
-                 embed_dim=256, depth=4, num_heads=4,
-                 mlp_ratio=2., norm_layer=nn.LayerNorm, out_chans=768):
+    def __init__(self, img_size=224, big_patch_size=16, patch_size=4, in_chans=3,
+                 embed_dim=96, depth=3, num_heads=4,
+                 mlp_ratio=1., norm_layer=nn.LayerNorm, out_chans=768):
         super().__init__()
 
         self.out_chans = out_chans
         self.num_big_patches = (img_size // big_patch_size) ** 2
         self.p_sz = big_patch_size
 
-        self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
+        self.patch_embed = PatchEmbed(big_patch_size, patch_size, in_chans, embed_dim)
         num_patches = self.patch_embed.num_patches
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)
