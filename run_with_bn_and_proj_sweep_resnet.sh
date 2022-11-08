@@ -14,11 +14,11 @@ do
   do
     for loss_invar_coeff in 25
     do
-      for loss_var_coeff in 25 50
+      for loss_var_coeff in 25
       do
-        for loss_cov_coeff in 383 767 1534
+        for loss_cov_coeff in 383
         do
-          for contextless_model_projector_arch in 768-32-32
+          for contextless_model_projector_arch in 512-768-768 512-128-128 512-96-96
           do
 #            if ((${COUNTER} > 3)); then
 #              partition=learnlab
@@ -26,7 +26,7 @@ do
 #              partition=devlab
 #            fi
 
-            OUTPUT_DIR="CONTEXTLESS_blr${BLR}_mr${MASK_RATIO}_invar${loss_invar_coeff}_var${loss_var_coeff}_cov${loss_cov_coeff}_batchsize_${batch_size}_custombasenorm_${contextless_model_projector_arch}"
+            OUTPUT_DIR="CONTEXTLESS_blr${BLR}_mr${MASK_RATIO}_invar${loss_invar_coeff}_var${loss_var_coeff}_cov${loss_cov_coeff}_batchsize_${batch_size}_custombasenorm_resnet18_${contextless_model_projector_arch}"
             python submitit_pretrain.py \
                     --job_dir ${JOB_DIR}/${OUTPUT_DIR} \
                     --output_dir ${JOB_DIR}/${OUTPUT_DIR}  \
@@ -40,7 +40,7 @@ do
                     --epochs 1600 \
                     --blr ${BLR} \
                     --mask_ratio ${MASK_RATIO} \
-                    --contextless_model custom_base_norm \
+                    --contextless_model resnet18 \
                     --contextless_model_projector_arch ${contextless_model_projector_arch} \
                     --loss_invar_coeff ${loss_invar_coeff} \
                     --loss_var_coeff ${loss_var_coeff} \
