@@ -72,7 +72,7 @@ def get_args_parser():
     parser.set_defaults(use_wandb=True)
     parser.add_argument('--save_ckpt_freq', default=10, type=int)
     parser.add_argument('--no_cls_token', action='store_false', dest='use_cls_token')
-    parser.add_argument('--weighted_invariance', default=0, type=int)
+    parser.add_argument('--weighted_invariance', default=0., type=float)
 
     # Optimizer parameters
     parser.add_argument('--weight_decay', type=float, default=0.05,
