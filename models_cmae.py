@@ -114,11 +114,14 @@ class MaskedAutoencoderViT(nn.Module):
             self.contextless_net = PatchResNet(embed_dim, patch_size, img_size)
         elif contextless_model == 'vit':
             decoder_input_dim = int(args.contextless_model_projector_arch.split('-')[0])
-            backbone = torch.nn.Sequential(PixelViT(img_size=img_size, embed_dim=decoder_input_dim), torch.nn.Flatten(0, 1))
+            backbone = torch.nn.Sequential(PixelViT(img_size=img_size, embed_dim=decoder_input_dim),
+                                           torch.nn.Flatten(0, 1))
             projector = Projector(layers_spec, 'gelu')
             self.contextless_net = ContextLessModelWrapperV2(backbone, projector, img_size, patch_size)
         elif contextless_model == 'resnet18':
-            backbone = torch.nn.Sequential(resnet18(pretrained=False, strides=[1, 2, 2, 1]), FlattenTranspose())
+            backbone = resnet18(pretrained=False, strides=[1, 2, 2, 1])
+            backbone.fc = torch.nn.Identity()
+            backbone = torch.nn.Sequential(backbone, FlattenTranspose())
             projector = Projector(layers_spec, 'relu')
             self.contextless_net = ContextLessModelWrapperV2(backbone, projector, img_size, patch_size)
         # --------------------------------------------------------------------------
@@ -312,6 +315,17 @@ class MaskedAutoencoderViT(nn.Module):
         y = self.contextless_net(imgs)
 
         # invaraince loss
+        if self.args.weighted_invariance > 0:
+            masked_y = y[mask.unsqueeze(-1).bool().expand_as(y)].view(B, -1, y.shape[-1])
+            non_masked_y = y[(1 - mask).unsqueeze(-1).bool().expand_as(y)].view(B, -1, y.shape[-1])
+            w = ((non_masked_y[:, None] - masked_y[:, :, None])**2).sum(-1).mean(dim=-1).sort(descending=True, dim=1)
+            pct_keep = self.args.weighted_invariance
+            keep_indices = w[1][:, :int(pct_keep*w[1].shape[1])]
+
+            # create new mask
+            mask = torch.zeros_like(mask)
+            mask.scatter_(1, keep_indices, 1.)
+
         loss_invar = F.mse_loss(x, y, reduction='none').mean(dim=-1)  # [B, L, E]
         loss_invar = (loss_invar * mask).sum() / mask.sum()
         loss_log.add_loss('loss_invar', self.args.loss_invar_coeff, loss_invar)

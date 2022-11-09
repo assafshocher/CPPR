@@ -27,6 +27,7 @@ import timm
 from timm.models.layers import trunc_normal_
 
 import util.misc as misc
+from util.pos_embed import interpolate_pos_embed
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 from util.lars import LARS
 from util.crop import RandomResizedCrop
