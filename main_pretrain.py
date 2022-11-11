@@ -61,7 +61,9 @@ def get_args_parser():
                     help='temperature for softmax in InfoNCE.')
 
     parser.add_argument('--contextless_model', default='base', type=str, help='base / resnet')
-    parser.add_argument('--contextless_model_projector_arch', type=str, default='768-768-768')
+    parser.add_argument('--contextless_model_projector_arch', type=str, default='768-768') # 2 FC layers
+    parser.add_argument('--norm_vit_projector', type=int, default=0) # 2 FC layers
+    parser.add_argument('--model_projector_arch', type=str, default='768-768') # 2 FC layers
     parser.add_argument('--aug_suite', default='standard', type=str, help='standard / masking')
     parser.add_argument('--wandb_log', default=None, type=str, help='all / None / gradients')
 

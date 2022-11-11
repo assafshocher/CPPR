@@ -7,15 +7,15 @@ DATA_PATH=/datasets01/imagenet_full_size/061417
 #MODEL_DIR=CONTEXTLESS_blr1.5e-4_mr0.75_invar25_var25_cov767_batchsize_64_large_8nodes
 #MODEL_DIR=CONTEXTLESS_blr1.5e-4_mr0.75_invar25_var25_cov383_batchsize_64_basenorm_large_8nodes
 #MODEL_DIR=CONTEXTLESS_blr6.5625e-05_mr0.75_invar25_var25_cov383_batchsize_64_basenorm_large_8nodes
-MODEL_DIR=CONTEXTLESS_blr1.5e-4_mr0.75_invar25_var25_cov383_batchsize_64_vit_96-768-large_8nodes
+MODEL_DIR=CONTEXTLESS_blr6.5625e-05_mr0.75_invar25_var25_cov767_batchsize_64_custombasenorm_768-768_modelproj_768-768-768_norm_vit_projector_1_large_8nodes
 COUNTER=0
-#for fn in checkpoint-100.pth checkpoint-200.pth
-for fn in checkpoint-100.pth
+#for fn in   checkpoint-100.pth checkpoint-200.pth
+for fn in checkpoint-400.pth
 do
   if ((${COUNTER} > 1)); then
-    partition=devlab
+    partition=learnlab
   else
-    partition=devlab
+    partition=learnlab
   fi
   PRETRAIN_CHKPT=${JOB_DIR}/${MODEL_DIR}/${fn}
   OUTPUT_DIR=${JOB_DIR}/${MODEL_DIR}/${fn%.pth}

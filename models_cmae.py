@@ -51,13 +51,13 @@ class UnFlattenP(nn.Module):
         return x.view(x.shape[0] // self.num_patches, self.num_patches, x.shape[-1])
 
 
-def Projector(f, activation, use_bn=True):
+def Projector(f, activation, norm=None):
     layers = []
 
     for i in range(len(f) - 2):
         layers.append(nn.Linear(f[i], f[i + 1]))
-        if use_bn:
-            layers.append(nn.BatchNorm1d(f[i + 1]))
+        if norm is not None:
+            layers.append(norm(f[i + 1]))
         if activation == 'relu':
             layers.append(nn.ReLU(True))
         elif activation == 'leaky_relu':
@@ -101,14 +101,15 @@ class MaskedAutoencoderViT(nn.Module):
         # --------------------------------------------------------------------------
         # --------------------------------------------------------------------------
         # contextless network
-        layers_spec = list(map(int, args.contextless_model_projector_arch.split("-")))
+        # assuming projector input is of size #embed_dim
+        layers_spec = [embed_dim] + list(map(int, args.contextless_model_projector_arch.split("-")))
         decoder_output_dim = layers_spec[-1]
         if contextless_model == 'custom_base_norm':
             backbone = torch.nn.Sequential(PatchEmbed(img_size, patch_size, in_chans, embed_dim),
                                            torch.nn.Flatten(0, 1),
                                            nn.BatchNorm1d(embed_dim),
                                            torch.nn.ReLU(inplace=True))
-            projector = Projector(layers_spec, 'relu')
+            projector = Projector(layers_spec, 'relu', norm=nn.BatchNorm1d)
             self.contextless_net = ContextLessModelWrapperV2(backbone, projector, img_size, patch_size)
         elif contextless_model == 'resnet':
             self.contextless_net = PatchResNet(embed_dim, patch_size, img_size)
@@ -116,13 +117,13 @@ class MaskedAutoencoderViT(nn.Module):
             decoder_input_dim = int(args.contextless_model_projector_arch.split('-')[0])
             backbone = torch.nn.Sequential(PixelViT(img_size=img_size, embed_dim=decoder_input_dim),
                                            torch.nn.Flatten(0, 1))
-            projector = Projector(layers_spec, 'gelu')
+            projector = Projector(layers_spec, 'gelu', norm=None)
             self.contextless_net = ContextLessModelWrapperV2(backbone, projector, img_size, patch_size)
         elif contextless_model == 'resnet18':
             backbone = resnet18(pretrained=False, strides=[1, 2, 2, 1])
             backbone.fc = torch.nn.Identity()
             backbone = torch.nn.Sequential(backbone, FlattenTranspose())
-            projector = Projector(layers_spec, 'relu')
+            projector = Projector(layers_spec, 'relu', norm=nn.BatchNorm1d)
             self.contextless_net = ContextLessModelWrapperV2(backbone, projector, img_size, patch_size)
         # --------------------------------------------------------------------------
         # MAE decoder specifics
@@ -138,7 +139,12 @@ class MaskedAutoencoderViT(nn.Module):
             for i in range(decoder_depth)])
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim, decoder_output_dim, bias=True)  # decoder to patch
+        layers_spec = [decoder_embed_dim] + list(map(int, args.model_projector_arch.split("-")))
+        if args.norm_vit_projector:
+            self.decoder_pred = Projector(layers_spec, 'gelu', norm=nn.LayerNorm)
+        else:
+            self.decoder_pred = Projector(layers_spec, 'gelu', norm=None)
+
         # --------------------------------------------------------------------------
         if self.args.linear_eval:
             if self.args.linear_eval_bn:
@@ -316,15 +322,18 @@ class MaskedAutoencoderViT(nn.Module):
 
         # invaraince loss
         if self.args.weighted_invariance > 0:
-            masked_y = y[mask.unsqueeze(-1).bool().expand_as(y)].view(B, -1, y.shape[-1])
-            non_masked_y = y[(1 - mask).unsqueeze(-1).bool().expand_as(y)].view(B, -1, y.shape[-1])
-            w = ((non_masked_y[:, None] - masked_y[:, :, None])**2).sum(-1).mean(dim=-1).sort(descending=True, dim=1)
-            pct_keep = self.args.weighted_invariance
-            keep_indices = w[1][:, :int(pct_keep*w[1].shape[1])]
-
-            # create new mask
-            mask = torch.zeros_like(mask)
-            mask.scatter_(1, keep_indices, 1.)
+            with torch.no_grad():
+                masked_y = y[mask.unsqueeze(-1).bool().expand_as(y)].view(B, -1, y.shape[-1])
+                non_masked_y = y[(1 - mask).unsqueeze(-1).bool().expand_as(y)].view(B, -1, y.shape[-1])
+                x_2 = (masked_y**2).sum(dim=-1).unsqueeze(-1)
+                y_2 = (non_masked_y**2).sum(dim=-1).unsqueeze(-2)
+                x_y = torch.einsum('ble,bpe->blp', masked_y, non_masked_y)
+                w = (x_2 + y_2 - 2*x_y).mean(dim=-1)
+                w = w.sort(descending=True, dim=1)
+                pct_keep = self.args.weighted_invariance
+                keep_indices = w[1][:, :int(pct_keep*w[1].shape[1])]
+                mask = torch.zeros_like(mask)
+                mask.scatter_(1, keep_indices.to(mask).long(), 1.)
 
         loss_invar = F.mse_loss(x, y, reduction='none').mean(dim=-1)  # [B, L, E]
         loss_invar = (loss_invar * mask).sum() / mask.sum()
@@ -344,14 +353,14 @@ class MaskedAutoencoderViT(nn.Module):
         # patchwise cov loss
         y_centered = y - y.mean(dim=1, keepdim=True)
         cov = torch.einsum('ble,blf->bef', y_centered, y_centered).div(L - 1).pow_(2)
-        loss_cov_p = (cov.sum() - torch.diagonal(cov, 1, 2).sum()).div(B * E * (E - 1))
+        loss_cov_p = (cov.sum() - torch.diagonal(cov, 0, 1, 2).sum()).div(B * E * (E - 1))
         loss_log.add_loss('loss_cov', self.loss_cov_coeff, loss_cov_p)
 
         # batchwise cov loss
         if self.args.use_batch_stats:
             y_centered = y - y.mean(dim=0, keepdim=True)
             cov = torch.einsum('ble,blf->lef', y_centered, y_centered).div(B - 1).pow_(2)
-            loss_cov_b = (cov.sum() - torch.diagonal(cov, 1, 2).sum()).div(L * E * (E - 1))
+            loss_cov_b = (cov.sum() - torch.diagonal(cov, 0, 1, 2).sum()).div(L * E * (E - 1))
             loss_log.add_loss('loss_cov_b', self.loss_cov_b_coeff, loss_cov_b)
 
         if label is not None:

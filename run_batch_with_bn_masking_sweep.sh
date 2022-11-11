@@ -10,17 +10,17 @@ batch_size=224
 partition=learnlab
 for BLR in 1.5e-4
 do
-  for MASK_RATIO in 0.75
+  for MASK_RATIO in 0.9
   do
     for loss_invar_coeff in 25
     do
-      for loss_var_coeff in 25 50 100
+      for loss_var_coeff in 25
       do
-        for loss_cov_coeff in 383 766
+        for loss_cov_coeff in 383
         do
-          for weighted_invariance in 0.1
+          for weighted_invariance in 0.
           do
-            if ((${COUNTER} > 3)); then
+            if ((${COUNTER} > 1)); then
               partition=learnlab
             else
               partition=devlab
