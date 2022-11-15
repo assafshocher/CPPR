@@ -13,6 +13,7 @@ from functools import partial
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from timm.models.vision_transformer import PatchEmbed, Block
 
@@ -226,9 +227,10 @@ class Discriminator(nn.Module):
             x = blk(x)
         x = self.norm(x)
 
-        # predictor projection
+        # project to a single [0,1] scalar per instanc projection
         x = x[:, 0, :]
         x = self.discriminator_pred(x)[:, 0]
+        x = F.sigmoid(x)
 
         return x
 
