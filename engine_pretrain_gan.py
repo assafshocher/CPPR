@@ -109,8 +109,9 @@ def train_one_epoch(encoder: torch.nn.Module,
                 lin_prob_optimizer.zero_grad()
 
         torch.cuda.synchronize()
-        lr = optimizer.param_groups[0]["lr"]
-        metric_logger.update(lr=lr)
+        metric_logger.update(lr_gen=gen_optimizer.param_groups[0]["lr"])
+        metric_logger.update(lr_disc=disc_optimizer.param_groups[0]["lr"])
+        metric_logger.update(lr_lin_prob=lin_prob_optimizer.param_groups[0]["lr"])
         metric_logger.update(**loss_dict)
         loss_value_reduce = misc.all_reduce_mean(loss_value)
         if log_writer is not None and (data_iter_step + 1) % accum_iter == 0:
