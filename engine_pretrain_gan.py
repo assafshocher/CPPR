@@ -79,7 +79,7 @@ def train_one_epoch(encoder: torch.nn.Module,
 
             # online liniar probing eval loss
             if lin_prob_model is not None:
-                loss_lin_prob = lin_prob_model(real_full_reps)
+                loss_lin_prob = lin_prob_model(real_full_reps, y)
                 loss_log.add_loss('loss_lin_prob', 1., loss_lin_prob)
 
         loss = loss_dict['loss']
