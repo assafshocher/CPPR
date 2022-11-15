@@ -25,6 +25,7 @@ def train_one_epoch(encoder: torch.nn.Module,
                     gen_optimizer: torch.optim.Optimizer,
                     disc_optimizer: torch.optim.Optimizer,
                     lin_probe_optimizer: torch.optim.Optimizer,
+                    criterion: torch.nn.Module,
                     device: torch.device, epoch: int, loss_scaler, model_without_ddp=None,
                     log_writer=None,
                     args=None):
@@ -49,7 +50,7 @@ def train_one_epoch(encoder: torch.nn.Module,
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
         samples = samples.to(device, non_blocking=True)
-        y = y.to(device, non_blocking=True)
+        y = y.to(device, non_blocking=True)d
         with torch.cuda.amp.autocast():
             
             # real examples
@@ -68,18 +69,20 @@ def train_one_epoch(encoder: torch.nn.Module,
             disc_labels = torch.cat([torch.ones_like(real_full_reps), 
                                      torch.zeros_like(pred_full_reps)], 0)
             loss_disc = criterion(disc_output, disc_labels)
+            loss_log.add_loss('loss_disc', 1., loss_disc)
             
             # generator loss
             disc_output_for_gen = disc_output[real_full_reps.shape[0]:]
             gen_labels = torch.zeros_like(pred_full_reps)
             gen_loss = criterion(disc_output_for_gen, gen_labels)
+            loss_log.add_loss('loss_gen', 1., loss_gen)
 
-            
+            # online liniar probing eval loss
+            if lin_prob_model is not None:
+                loss_lin_prob = lin_prob_model(real_full_reps)
+                loss_log.add_loss('loss_lin_prob', 1., loss_lin_prob)
 
-
-
-            loss_dict = model(samples, mask_ratio=args.mask_ratio, y=y)
-        loss = loss_dict['loss']
+                    loss = loss_dict['loss']
         loss_value = loss.item()
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
