@@ -233,7 +233,7 @@ class Discriminator(nn.Module):
         return x
 
 
-class LinProbeLoss(nn.Module):
+class LinProbLoss(nn.Module):
     def __init__(self):
         super().__init__()
         self.fc_projector = torch.nn.Linear(embed_dim, 1000)

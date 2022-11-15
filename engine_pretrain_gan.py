@@ -55,7 +55,7 @@ def train_one_epoch(encoder: torch.nn.Module,
             
             # real examples
             with torch.no_grad():
-                real_full_reps, _ = encoder(x, mask_ratio=0.).detach()
+                real_full_reps, _ = encoder(x, mask_ratio=None).detach()
 
             # generated examples
             masked_reps, ids_restore = encoder(x, mask_ratio=args.mask_ratio)
@@ -82,7 +82,7 @@ def train_one_epoch(encoder: torch.nn.Module,
                 loss_lin_prob = lin_prob_model(real_full_reps)
                 loss_log.add_loss('loss_lin_prob', 1., loss_lin_prob)
 
-                    loss = loss_dict['loss']
+        loss = loss_dict['loss']
         loss_value = loss.item()
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
