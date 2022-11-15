@@ -20,11 +20,11 @@ import util.lr_sched as lr_sched
 def train_one_epoch(encoder: torch.nn.Module,
                     predictor: torch.nn.Module,
                     discriminator: torch.nn.Module,
-                    lin_probe_model: torch.nn.Module,
+                    lin_prob_model: torch.nn.Module,
                     data_loader: Iterable, 
                     gen_optimizer: torch.optim.Optimizer,
                     disc_optimizer: torch.optim.Optimizer,
-                    lin_probe_optimizer: torch.optim.Optimizer,
+                    lin_prob_optimizer: torch.optim.Optimizer,
                     criterion: torch.nn.Module,
                     device: torch.device, epoch: int, loss_scaler, model_without_ddp=None,
                     log_writer=None,
@@ -39,8 +39,8 @@ def train_one_epoch(encoder: torch.nn.Module,
 
     gen_optimizer.zero_grad()
     disc_optimizer.zero_grad()
-    if lin_probe_model is not None:
-        lin_probe_optimizer.zero_grad()
+    if lin_prob_model is not None:
+        lin_prob_optimizer.zero_grad()
 
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
@@ -82,16 +82,32 @@ def train_one_epoch(encoder: torch.nn.Module,
                 loss_lin_prob = lin_prob_model(real_full_reps, y)
                 loss_log.add_loss('loss_lin_prob', 1., loss_lin_prob)
 
-        loss = loss_dict['loss']
-        loss_value = loss.item()
+        loss_gen_value = loss_gen.item()
+        loss_disc_value = loss_gen.item()
+
+
         if not math.isfinite(loss_value):
             print("Loss is {}, stopping training".format(loss_value))
             sys.exit(1)
-        loss /= accum_iter
-        loss_scaler(loss, optimizer, parameters=model.parameters(),
+        loss_gen_value /= accum_iter
+        loss_scaler(loss, gen_optimizer, parameters=model.parameters(),
                     update_grad=(data_iter_step + 1) % accum_iter == 0)
+
+        loss_disc_value /= accum_iter
+        loss_scaler(loss, disc_optimizer, parameters=model.parameters(),
+                    update_grad=(data_iter_step + 1) % accum_iter == 0)
+
+        if lin_prob_model is not None:
+            loss_lin_prob_value /= accum_iter
+            loss_scaler(loss, lin_prob_optimizer, parameters=model.parameters(),
+                        update_grad=(data_iter_step + 1) % accum_iter == 0)
+
         if (data_iter_step + 1) % accum_iter == 0:
-            optimizer.zero_grad()
+            gen_optimizer.zero_grad()
+            disc_optimizer.zero_grad()
+            if lin_prob_model is not None:
+                lin_prob_optimizer.zero_grad()
+
         torch.cuda.synchronize()
         lr = optimizer.param_groups[0]["lr"]
         metric_logger.update(lr=lr)
