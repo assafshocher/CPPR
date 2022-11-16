@@ -265,9 +265,8 @@ def main(args):
             data_loader_train.sampler.set_epoch(epoch)
         train_stats = train_one_epoch(encoder, predictor, discriminator, lin_prob_model, data_loader_train,
                                       gen_opt, discriminator_opt, lin_prob_model_opt, device, epoch, loss_scaler,
-                                      log_writer=log_writer,
-                                      args=args
-                                      )
+                                      log_writer=log_writer, args=args)
+
         if args.output_dir and (epoch % args.save_ckpt_freq == 0 or epoch + 1 == args.epochs):
             misc.save_model(
                 args=args, models_without_ddp=models_without_ddp, optimizers=optimizers,

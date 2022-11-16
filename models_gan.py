@@ -127,11 +127,11 @@ class Predictor(nn.Module):
         self.decoder_pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, decoder_embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.decoder_blocks = nn.ModuleList([
-            Block(decoder_embed_dim, decoder_num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
+            Block(decoder_embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
             for i in range(decoder_depth)])
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim, pembed_dim, bias=True)
+        self.decoder_pred = nn.Linear(decoder_embed_dim, embed_dim, bias=True)
     
     def initialize_weights(self):
         # initialization
@@ -188,8 +188,8 @@ class Predictor(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, embed_dim=1024, discriminator_embed_dim, depth=24, num_heads=16,
-                 mlp_ratio=4., norm_layer=nn.LayerNorm, num_patches):
+    def __init__(self, embed_dim=1024, discriminator_embed_dim=512, depth=24, num_heads=16,
+                 mlp_ratio=4., norm_layer=nn.LayerNorm, num_patches=196):
         super().__init__()
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, discriminator_embed_dim), requires_grad=False)  # fixed sin-cos embedding
         self.discriminator_embed = nn.Linear(embed_dim, discriminator_embed_dim, bias=True)
@@ -240,7 +240,7 @@ class Discriminator(nn.Module):
 
 
 class LinProbLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, embed_dim):
         super().__init__()
         self.fc_projector = torch.nn.Linear(embed_dim, 1000)
         self.fc_projector = torch.nn.Sequential(torch.nn.BatchNorm1d(embed_dim, affine=False), self.fc_projector)
@@ -258,21 +258,22 @@ class LinProbLoss(nn.Module):
 
 
 def models_base(**kwargs):
+    embed_dim = 768
     encoder = Encoder(img_size=224, patch_size=16, in_chans=3,
-                      embed_dim=768, depth=12, num_heads=12,
+                      embed_dim=embed_dim, depth=12, num_heads=12,
                       mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6))
 
-    predictor = Predictor(embed_dim=768, decoder_embed_dim=512, 
+    predictor = Predictor(embed_dim=embed_dim, decoder_embed_dim=512,
                           decoder_depth=8, num_heads=16,
                           mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6), 
                           num_patches=196)
 
-    discriminator = Discriminator(embed_dim=768, discriminator_embed_dim=512, depth=24, 
+    discriminator = Discriminator(embed_dim=embed_dim, discriminator_embed_dim=512, depth=24,
                                   num_heads=16, mlp_ratio=4., 
                                   norm_layer=partial(nn.LayerNorm, eps=1e-6),
                                   num_patches=196)
 
-    lin_prob_model = LinProbLoss()
+    lin_prob_model = LinProbLoss(embed_dim)
 
     return encoder, predictor, discriminator, lin_prob_model
 

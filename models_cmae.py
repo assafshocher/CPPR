@@ -381,6 +381,7 @@ class LossLog:
         self.loss_name_lst.append(loss_name)
         self.loss_coeff_lst.append(loss_coeff)
         self.loss_val_lst.append(loss_val)
+        return loss_coeff*loss_val
 
     def return_loss(self):
         loss_dict = {'loss': 0.}
