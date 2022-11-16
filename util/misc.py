@@ -295,42 +295,45 @@ def get_grad_norm_(parameters, norm_type: float = 2.0) -> torch.Tensor:
     return total_norm
 
 
-def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler):
+def save_model(args, epoch, models_without_ddp, optimizers, loss_scaler):
+    model_names = ['encoder', 'predictor', 'discriminator', 'lin_prob_model']
     output_dir = Path(args.output_dir)
     epoch_name = str(epoch)
-    if loss_scaler is not None:
-        checkpoint_paths = [output_dir / ('checkpoint-%s.pth' % epoch_name)]
-        for checkpoint_path in checkpoint_paths:
-            to_save = {
-                'model': model_without_ddp.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch,
-                'scaler': loss_scaler.state_dict(),
-                'args': args,
-            }
-
-            save_on_master(to_save, checkpoint_path)
-    else:
-        client_state = {'epoch': epoch}
-        model.save_checkpoint(save_dir=args.output_dir, tag="checkpoint-%s" % epoch_name, client_state=client_state)
+    checkpoint_paths = [output_dir / ('checkpoint-%s.pth' % epoch_name)]
+    for checkpoint_path in checkpoint_paths:
+        to_save = {
+            'epoch': epoch,
+            'scaler': loss_scaler.state_dict(),
+            'args': args,
+        }
+        to_save.update({'model_%s'%k: v.state_dict() for k,v in zip(model_names, models_without_ddp)})
+        to_save.update({'optimizer_%s'%k: v.state_dict() for k,v in zip(model_names, optimizers)})
+        save_on_master(to_save, checkpoint_path)
 
 
-def load_model(args, model_without_ddp, optimizer, loss_scaler):
+def load_model(args, models_without_ddp, optimizers, loss_scaler):
+    model_names = ['encoder', 'predictor', 'discriminator', 'lin_prob_model']
     if args.resume:
         if args.resume.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.resume, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.resume, map_location='cpu')
-        res = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
-        print(res)
+
+        for model, model_name in zip(models_without_ddp, model_names):
+            res = model.load_state_dict(checkpoint['model_%s'%model_name], strict=False)
+            print(f"Load status {model_name}: {res}")
+
         print("Resume checkpoint %s" % args.resume)
-        if 'optimizer' in checkpoint and 'epoch' in checkpoint and not (hasattr(args, 'eval') and args.eval):
-            optimizer.load_state_dict(checkpoint['optimizer'])
+        if not (hasattr(args, 'eval') and args.eval):
+            for optimizer, model_name in zip(optimizers, model_names):
+                res = optimizer.load_state_dict(checkpoint[f'optimizer_{model_name}'])
+                print(f"Optimizer load status {model_name}: {res}")
+
             args.start_epoch = checkpoint['epoch'] + 1
             if 'scaler' in checkpoint:
-                loss_scaler.load_state_dict(checkpoint['scaler'])
-            print("With optim & sched!")
+                res = loss_scaler.load_state_dict(checkpoint['scaler'])
+                print(f"Scaler load status: {res}")
 
 
 def all_reduce_mean(x):

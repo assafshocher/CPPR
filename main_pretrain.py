@@ -28,11 +28,10 @@ from engine_finetune import evaluate_ours
 import timm.optim.optim_factory as optim_factory
 
 import util.misc as misc
+from models_gan import models_base
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
-import models_cmae
-
-from engine_pretrain import train_one_epoch
+from engine_pretrain_gan import train_one_epoch
 
 
 def get_args_parser():
@@ -52,21 +51,18 @@ def get_args_parser():
                         help='images input size')
 
     parser.add_argument('--mask_ratio', default=0.75, type=float,
-                    help='ratio of masked-out patches.')
+                        help='ratio of masked-out patches.')
 
-    parser.add_argument('--mask_ratio_eval', default=0.75, type=float,
-                    help='ratio of masked-out patches in online eval.')
+    parser.add_argument('--mask_ratio_eval', default=0., type=float,
+                        help='ratio of masked-out patches in online eval.')
 
     parser.add_argument('--temperature', default=0.1, type=float,
-                    help='temperature for softmax in InfoNCE.')
+                        help='temperature for softmax in InfoNCE.')
 
     parser.add_argument('--contextless_model', default='base', type=str, help='base / resnet')
     parser.add_argument('--contextless_model_projector_arch', type=str, default='768-768-768')
     parser.add_argument('--aug_suite', default='standard', type=str, help='standard / masking')
     parser.add_argument('--wandb_log', default=None, type=str, help='all / None / gradients')
-
-                    
-
 
     parser.add_argument('--no_wandb', action='store_false', dest='use_wandb')
     parser.set_defaults(use_wandb=True)
@@ -96,7 +92,7 @@ def get_args_parser():
     parser.add_argument('--log_dir', default='./output_dir',
                         help='path where to tensorboard log')
     parser.add_argument('--project_name', default='cmae',
-                        help='path where to tensorboard log')  
+                        help='path where to tensorboard log')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=0, type=int)
@@ -195,7 +191,6 @@ def main(args):
         drop_last=False
     )
 
-
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
         batch_size=args.batch_size,
@@ -203,17 +198,14 @@ def main(args):
         pin_memory=args.pin_mem,
         drop_last=True,
     )
-    
+
     # define the model
-    model = models_cmae.__dict__[args.model](args=args, contextless_model=args.contextless_model)
-
-    model.to(device)
-
-    model_without_ddp = model
-    print("Model = %s" % str(model_without_ddp))
+    models_without_ddp = list(models_base())
+    for model in models_without_ddp:
+        model.to(device)
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
-    
+
     if args.lr is None:  # only base_lr is specified
         args.lr = args.blr * eff_batch_size / 256
 
@@ -223,15 +215,20 @@ def main(args):
     print("accumulate grad iterations: %d" % args.accum_iter)
     print("effective batch size: %d" % eff_batch_size)
 
+    models = []
     if args.distributed:
-        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
-        model_without_ddp = model.module
-    
+        for i in range(len(models_without_ddp)):
+            models_without_ddp[i] = torch.nn.SyncBatchNorm.convert_sync_batchnorm(models_without_ddp[i])
+            models.append(torch.nn.parallel.DistributedDataParallel(models_without_ddp[i], device_ids=[args.gpu]))
+
     # following timm: set wd as 0 for bias and norm layers
-    param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
-    optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
-    print(optimizer)
+    optimizers = []
+    for model_without_ddp in models_without_ddp:
+        model_param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
+        optimizer = torch.optim.AdamW(model_param_groups, lr=args.lr, betas=(0.9, 0.95))
+        optimizers.append(optimizer)
+        print(optimizer)
+
     loss_scaler = NativeScaler()
 
     if args.resume == '':
@@ -240,7 +237,7 @@ def main(args):
             fn = sorted(fns, key=lambda x: x.split('-')[1].split('.')[0])[-1]
             args.resume = fn
 
-    misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
+    misc.load_model(args, models_without_ddp, optimizers, loss_scaler=loss_scaler)
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
@@ -254,33 +251,34 @@ def main(args):
                 wandb.init(
                     project=args.project_name, entity="cppr", config=vars(args))
                 if args.wandb_log is not None:
-                    wandb.watch(models=model_without_ddp, log=args.wandb_log, log_freq=100, log_graph=True)
+                    wandb.watch(models=models_without_ddp[0], log=args.wandb_log, log_freq=100, log_graph=True)
                 wandb.run.name = os.path.split(args.output_dir)[-1]
                 wandb.run.save()
             except Exception as e:
                 print(f"Unable to setup wandb: {e}")
         print(args)
 
-
+    encoder, predictor, discriminator, lin_prob_model = models
+    gen_opt, discriminator_opt, lin_prob_model_opt = optimizers
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
-        train_stats = train_one_epoch(
-            model, data_loader_train,
-            optimizer, device, epoch, loss_scaler, model_without_ddp=model_without_ddp,
-            log_writer=log_writer,
-            args=args
-        )
+        train_stats = train_one_epoch(encoder, predictor, discriminator, lin_prob_model, data_loader_train,
+                                      gen_opt, discriminator_opt, lin_prob_model_opt, device, epoch, loss_scaler,
+                                      log_writer=log_writer,
+                                      args=args
+                                      )
         if args.output_dir and (epoch % args.save_ckpt_freq == 0 or epoch + 1 == args.epochs):
             misc.save_model(
-                args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                args=args, models_without_ddp=models_without_ddp, optimizers=optimizers,
                 loss_scaler=loss_scaler, epoch=epoch)
 
         log_stats = {**{f'{k}': v for k, v in train_stats.items()},
-                        'epoch': epoch,}
+                     'epoch': epoch, }
 
-        model.eval()
-        stats = evaluate_ours(val_loader, model, device, args.mask_ratio_eval)
+        generator = models[0]
+        generator.eval()
+        stats = evaluate_ours(val_loader, generator, device, args.mask_ratio_eval)
         log_stats.update(stats)
 
         if args.output_dir and misc.is_main_process():
@@ -292,7 +290,8 @@ def main(args):
             if args.use_wandb:
                 wandb.log(log_stats)
 
-        if epoch > args.kill_after or (epoch == 10 and log_stats['acc1'] < 2) or (epoch == 50 and log_stats['acc1'] < 10):
+        if epoch > args.kill_after or (epoch == 10 and log_stats['acc1'] < 2) or (
+                epoch == 50 and log_stats['acc1'] < 10):
             break
 
     total_time = time.time() - start_time

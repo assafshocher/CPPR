@@ -13,7 +13,7 @@ import sys
 from typing import Iterable
 
 import torch
-
+import torch.nn.functional as F
 import util.misc as misc
 import util.lr_sched as lr_sched
 
@@ -25,8 +25,7 @@ def train_one_epoch(encoder: torch.nn.Module,
                     gen_optimizer: torch.optim.Optimizer,
                     disc_optimizer: torch.optim.Optimizer,
                     lin_prob_optimizer: torch.optim.Optimizer,
-                    criterion: torch.nn.Module,
-                    device: torch.device, epoch: int, loss_scaler, model_without_ddp=None,
+                    device: torch.device, epoch: int, loss_scaler,
                     log_writer=None,
                     args=None):
     model.train(True)
@@ -68,7 +67,8 @@ def train_one_epoch(encoder: torch.nn.Module,
             # discriminator loss
             disc_labels = torch.cat([torch.ones_like(real_full_reps), 
                                      torch.zeros_like(pred_full_reps)], 0)
-            loss_disc = criterion(disc_output, disc_labels)
+
+            loss_disc = F.mse_loss(disc_output, disc_labels)
             loss_log.add_loss('loss_disc', 1., loss_disc)
             
             # generator loss
