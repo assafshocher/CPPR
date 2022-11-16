@@ -200,7 +200,7 @@ def main(args):
     )
 
     # define the model
-    models_without_ddp = list(models_base())
+    models_without_ddp = models_base()
     for model in models_without_ddp:
         model.to(device)
 
@@ -220,14 +220,20 @@ def main(args):
         for i in range(len(models_without_ddp)):
             models_without_ddp[i] = torch.nn.SyncBatchNorm.convert_sync_batchnorm(models_without_ddp[i])
             models.append(torch.nn.parallel.DistributedDataParallel(models_without_ddp[i], device_ids=[args.gpu]))
-
+    else:
+        models = models_without_ddp
     # following timm: set wd as 0 for bias and norm layers
     optimizers = []
-    for model_without_ddp in models_without_ddp:
-        model_param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
-        optimizer = torch.optim.AdamW(model_param_groups, lr=args.lr, betas=(0.9, 0.95))
-        optimizers.append(optimizer)
-        print(optimizer)
+    encoder, predictor, discriminator, lin_prob_model = models_without_ddp
+    model_param_groups1 = optim_factory.add_weight_decay(encoder, args.weight_decay)
+    model_param_groups2 = optim_factory.add_weight_decay(predictor, args.weight_decay)
+    optimizers.append(torch.optim.AdamW(model_param_groups1+model_param_groups2, lr=args.lr, betas=(0.9, 0.95)))
+
+    model_param_groups = optim_factory.add_weight_decay(discriminator, args.weight_decay)
+    optimizers.append(torch.optim.AdamW(model_param_groups, lr=args.lr, betas=(0.9, 0.95)))
+
+    model_param_groups = optim_factory.add_weight_decay(lin_prob_model, args.weight_decay)
+    optimizers.append(torch.optim.AdamW(model_param_groups, lr=args.lr, betas=(0.9, 0.95)))
 
     loss_scaler = NativeScaler()
 

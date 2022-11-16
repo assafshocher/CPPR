@@ -64,7 +64,7 @@ def train_one_epoch(encoder: torch.nn.Module,
 
             # real examples
             with torch.no_grad():
-                real_full_reps, _ = encoder(samples, mask_ratio=None).detach()
+                real_full_reps = encoder(samples, mask_ratio=None)[0].detach()
 
             # generated examples
             masked_reps, ids_restore = encoder(samples, mask_ratio=args.mask_ratio)
