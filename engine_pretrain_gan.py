@@ -47,7 +47,10 @@ def train_one_epoch(encoder: torch.nn.Module,
     for data_iter_step, (samples, y) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         # we use a per iteration (instead of per epoch) lr scheduler
         if data_iter_step % accum_iter == 0:
-            lr_sched.adjust_learning_rate(optimizer, data_iter_step / len(data_loader) + epoch, args)
+            lr_sched.adjust_learning_rate(gen_optimizer, data_iter_step / len(data_loader) + epoch, args)
+            lr_sched.adjust_learning_rate(disc_optimizer, data_iter_step / len(data_loader) + epoch, args)
+            if lin_prob_model is not None:
+                lr_sched.adjust_learning_rate(lin_prob_optimizer, data_iter_step / len(data_loader) + epoch, args)
         samples = samples.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)d
         with torch.cuda.amp.autocast():
@@ -73,7 +76,7 @@ def train_one_epoch(encoder: torch.nn.Module,
             
             # generator loss
             disc_output_for_gen = disc_output[real_full_reps.shape[0]:]
-            gen_labels = torch.zeros_like(pred_full_reps)
+            gen_labels = torch.ones_like(pred_full_reps)
             gen_loss = criterion(disc_output_for_gen, gen_labels)
             loss_log.add_loss('loss_gen', 1., loss_gen)
 
