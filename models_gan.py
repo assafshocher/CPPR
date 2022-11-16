@@ -188,15 +188,16 @@ class Predictor(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, embed_dim=1024, depth=24, num_heads=16,
-                 mlp_ratio=4., norm_layer=nn.LayerNorm):
+    def __init__(self, embed_dim=1024, discriminator_embed_dim, depth=24, num_heads=16,
+                 mlp_ratio=4., norm_layer=nn.LayerNorm, num_patches):
         super().__init__()
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, discriminator_embed_dim), requires_grad=False)  # fixed sin-cos embedding
+        self.discriminator_embed = nn.Linear(embed_dim, discriminator_embed_dim, bias=True)
         self.blocks = nn.ModuleList([
-            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
+            Block(discriminator_embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
             for i in range(depth)])
-        self.norm = norm_layer(embed_dim)
-        self.discriminator_pred = nn.Linear(embed_dim, 1, bias=True)
+        self.norm = norm_layer(discriminator_embed_dim)
+        self.discriminator_pred = nn.Linear(discriminator_embed_dim, 1, bias=True)
 
     def initialize_weights(self):
         # initialization
@@ -222,6 +223,9 @@ class Discriminator(nn.Module):
             nn.init.constant_(m.weight, 1.0)
 
     def forward(self, x):
+        x = self.discriminator_embed(x)
+        x = x + self.pos_embed
+
         # apply Transformer blocks
         for blk in self.blocks:
             x = blk(x)
@@ -251,31 +255,25 @@ class LinProbLoss(nn.Module):
 
 
 
-def mae_vit_base_patch16_dec512d8b(**kwargs):
-    model = MaskedAutoencoderViT(
-        patch_size=16, embed_dim=768, depth=12, num_heads=12,
-        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
 
 
-def mae_vit_large_patch16_dec512d8b(**kwargs):
-    model = MaskedAutoencoderViT(
-        patch_size=16, embed_dim=1024, depth=24, num_heads=16,
-        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
+def models_base(**kwargs):
+    encoder = Encoder(img_size=224, patch_size=16, in_chans=3,
+                      embed_dim=768, depth=12, num_heads=12,
+                      mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6))
+
+    predictor = Predictor(embed_dim=768, decoder_embed_dim=512, 
+                          decoder_depth=8, num_heads=16,
+                          mlp_ratio=4., norm_layer=partial(nn.LayerNorm, eps=1e-6), 
+                          num_patches=196)
+
+    discriminator = Discriminator(embed_dim=768, discriminator_embed_dim=512, depth=24, 
+                                  num_heads=16, mlp_ratio=4., 
+                                  norm_layer=partial(nn.LayerNorm, eps=1e-6),
+                                  num_patches=196)
+
+    lin_prob_model = LinProbLoss()
+
+    return encoder, predictor, discriminator, lin_prob_model
 
 
-def mae_vit_huge_patch14_dec512d8b(**kwargs):
-    model = MaskedAutoencoderViT(
-        patch_size=14, embed_dim=1280, depth=32, num_heads=16,
-        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-# set recommended archs
-mae_vit_base_patch16 = mae_vit_base_patch16_dec512d8b  # decoder: 512 dim, 8 blocks
-mae_vit_large_patch16 = mae_vit_large_patch16_dec512d8b  # decoder: 512 dim, 8 blocks
-mae_vit_huge_patch14 = mae_vit_huge_patch14_dec512d8b  # decoder: 512 dim, 8 blocks
